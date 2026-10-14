@@ -62,7 +62,7 @@ Sent once when the stream opens, before any other frame.
   "version": "1.4.0",
   "instance_id": "0123456789abcdef0123456789abcdef",
   "storage_space": { "data": "ok", "home": "low" },
-  "publishes": ["session.task", "bot.changed", "session.agent_usage", "tls.changed", "session.wake"]
+  "publishes": ["session.task", "bot.changed", "session.agent_usage", "tls.changed", "session.wake", "peers.changed"]
 }
 ```
 
@@ -258,6 +258,18 @@ The Bot's saved state changed (profile, models, chats, tasks), its memory text o
 No `session_id`.
 
 Refetch: `GET /v1/bot`. If the memory view is open, also `GET /v1/bot/memory`.
+
+### peers.changed
+
+Bot peering changed: a switch, a paired peer (paired, unpaired, online state, address), the Cores seen on the network, or a message in the Bot room. Optional: listed in `ready.publishes`.
+
+```json
+{ "type": "peers.changed" }
+```
+
+No `session_id`.
+
+Refetch: `GET /v1/peering`, and the open room channel if one is shown.
 
 ### session.wake
 

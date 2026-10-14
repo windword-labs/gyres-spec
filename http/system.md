@@ -644,7 +644,7 @@ Request:
 }
 ```
 
-- `key_id` (string, required, 1–64 characters) names the client's key without revealing it. For a key of the form `gyres_<id>_<secret>` it is `<id>`. For any other key it is `legacy-` followed by the first 24 lowercase hex characters of the SHA-256 of the whole key.
+- `key_id` (string, required, 1–64 characters) names the client's key without revealing it. For a key of the form `gyres_<id>_<secret>` it is `<id>`. For any other key it is `legacy-` followed by the first 24 lowercase hex characters of the SHA-256 of the whole key. Another Core holding a peer key `gyp_<id>_<secret>` (see [Bot peers](peers.md)) names it `peer-<id>`; the proof is computed the same way from that key.
 - `nonce` (string, required) is 32 to 128 lowercase hex characters, an even number, fresh random for every challenge (send at least 16 random bytes; 32 is recommended).
 - `target` (string, required, at most 512 bytes, no control characters) is the `http` or `https` origin the client sent this request to: scheme, host and optional port, no path other than `/`, no query, fragment or user info.
 - The body is one JSON object of at most 4096 bytes with only these fields.
