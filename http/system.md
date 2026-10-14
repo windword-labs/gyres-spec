@@ -213,9 +213,10 @@ Request: no body.
 Response: `200`
 
 ```json
-{ "enabled": false, "max_turns": 100 }
+{ "enabled": false, "max_turns": 100, "goal_max_continuations": 100 }
 ```
 
+- `goal_max_continuations` caps a goal's automatic continuations ([goal](runs.md#goal)); `100` until someone saves another.
 - `enabled` is false until a cap is turned on. While it is false, new tasks are not capped, and `max_turns` is still stored.
 - `max_turns` is the stored cap. When no setting has been saved it is `100`. A new task is limited to this many model rounds only when `enabled` is true. One round is one model decision and its tool calls. A tighter limit asked for on a single task is kept; this setting never raises a task's own limit.
 
@@ -727,6 +728,7 @@ Request:
 
 - `enabled` (boolean) turns the cap on or off. Turning it off keeps `max_turns`.
 - `max_turns` (integer) is the cap, from 100 through 4294967295. A fraction, a negative number, or a number above that range is rejected.
+- `goal_max_continuations` (integer, optional) is the goal continuation cap, 1 through 10000. Left out, the saved value stays.
 - The body is at most 4096 bytes. Unknown fields are ignored. Omitting either field is rejected.
 
 Response: `200`

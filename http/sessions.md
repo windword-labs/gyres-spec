@@ -160,7 +160,7 @@ Omitted as a whole when empty. Field names are camelCase.
 - `authorId`, `authorParticipantId`, `dispatchId`: strings.
 - `targetParticipantIds`: array of strings.
 - `backgroundTrigger`: `{"kind","triggerId","label"}`. `label` is omitted when unset.
-- `internalMessage`: `subAgentCompletion`, `turnAborted`, `dateStampReminder`, `goalContinuation`, `contextUpdate`, `coreMessage`, or `botTaskResult`.
+- `internalMessage`: `subAgentCompletion`, `turnAborted`, `dateStampReminder`, `goalContinuation`, `contextUpdate`, `coreMessage`, `botTaskResult`, or `wake` (the hidden first message of a turn a [wake](runs.md#wakes) started).
 - `contextEpoch`: string.
 - `contextUpdateKey`: string. The four values listed under list rows mark a context record.
 - `importedFrom`: `terminal` when the record was copied from a terminal session.

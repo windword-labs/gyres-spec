@@ -32,11 +32,32 @@ Core-wide notifications (`GET /v1/events`) and run-stream frames (`GET /v1/sessi
 
 `status` is `active`, `paused`, `blocked`, `complete`, `usage_limited` or `capped`.
 
-An `active` goal keeps starting another turn after a turn that finishes normally, up to 100 automatic continuations (`continuations` counts those). The owner stopping a turn leaves the goal as it is. A turn that fails becomes `blocked`, or `usage_limited` when the failure is a provider usage limit. Reaching 100 continuations becomes `capped` with `reason` `100 automatic continuations`. `resume`, and an edit that starts the goal again, set `continuations` back to 0. They do not spend one.
+An `active` goal keeps starting another turn after a turn that finishes normally, up to the goal continuation cap (`goal_max_continuations` of `GET /v1/task-limits`, 100 by default; `continuations` counts those). The owner stopping a turn leaves the goal as it is. A turn that fails becomes `blocked`, or `usage_limited` when the failure is a provider usage limit. Reaching the cap becomes `capped` with `reason` `<cap> automatic continuations`. `resume`, and an edit that starts the goal again, set `continuations` back to 0. They do not spend one.
 
 `pause` does not stop a turn that is already running. That turn finishes, and no further goal turn starts until `resume`. `clear` removes the goal and also leaves a running turn alone.
 
 The first turn of a newly set goal shows `objective` as the owner's message. Later goal turns are hidden continuation turns.
+
+A goal turn may wait (the model's `wait_goal`): the turn ends with no continuation after it, and the lane's [wake](#wakes) starts the next goal turn later, counted as one continuation. Any `POST …/goal` action cancels the wait.
+
+## Wakes
+
+A wake is one deferred turn of a lane: when it is due, Core starts a turn whose first message is hidden (`internalMessage` `wake`). A lane has at most one pending wake; setting another replaces it. Wakes survive a Core restart. A wake waits while its lane runs and fires when the lane is free. `source` is `goal` (a goal waiting), `plugin:<name>` (a plugin, such as the loop plugin's next check) or `api`. Deleting or archiving the conversation drops its wakes.
+
+A wake object:
+
+```json
+{
+  "id": "wk_0c1d2e3f405162738495a6b7",
+  "session_id": "2026-10-14T12-04-05_018f3a2b-7c4d-7e5f-a6b7-8c9d0e1f2a3b",
+  "source": "plugin:loop",
+  "due_at": "2026-10-14T12:34:05Z",
+  "note": "build 41 running",
+  "created_at": "2026-10-14T12:04:05Z"
+}
+```
+
+`note` is absent when empty. Times are UTC.
 
 ## Message input
 
@@ -215,8 +236,10 @@ Response: `200`
 ```
 
 ```json
-{"goal": null}
+{"goal": null, "wake": null}
 ```
+
+`wake` is the goal's pending wait (a [wake](#wakes) with source `goal`), or `null`.
 
 - `id` is a UUID. `session_id` is the conversation handle.
 - `objective` is the text the owner set.
@@ -231,6 +254,48 @@ Errors:
 - `404` session not found
 - `503` goals are unavailable
 - `500` the goal could not be read
+
+Events: none.
+
+### GET /v1/wakes
+
+Auth: any key
+Effect: Lists every pending wake, soonest first. Changes nothing.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{"wakes": [{"id": "wk_0c1d2e3f405162738495a6b7", "session_id": "2026-10-14T12-04-05_018f3a2b-7c4d-7e5f-a6b7-8c9d0e1f2a3b", "source": "plugin:loop", "due_at": "2026-10-14T12:34:05Z", "created_at": "2026-10-14T12:04:05Z"}]}
+```
+
+Each entry is a [wake](#wakes).
+
+Events: `session.wake` on `GET /v1/events` whenever a lane's wake is set, replaced, cancelled, fired or dropped.
+
+### GET /v1/sessions/{id}/wake
+
+Auth: any key
+Effect: Returns the lane's pending wake, or `null`. Changes nothing.
+
+Path: `id` conversation handle.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{"wake": null, "running": false}
+```
+
+- `wake` is a [wake](#wakes) or `null`.
+- `running` is true while a turn of the lane runs.
+
+Errors:
+
+- `404` session not found
+- `503` wakes are unavailable
 
 Events: none.
 
@@ -673,6 +738,65 @@ Errors:
 - `503` goals are unavailable
 
 Events: `session.run_started`, `session.run_finished`, `session.messages`, `session.task` when this starts a turn. Otherwise none.
+
+### PUT /v1/sessions/{id}/wake
+
+Auth: admin
+Effect: Sets the lane's wake, replacing a pending one. When it is due Core starts a turn whose first message is `prompt`, hidden. Plugins reach this with their hook token for their own conversation (source `plugin:<name>`); with an access key the source is `api`.
+
+Path: `id` conversation handle.
+
+Request:
+
+```json
+{"delay_seconds": 1800, "prompt": "Check whether build 41 finished.", "note": "build 41 running"}
+```
+
+- `delay_seconds` (number) or `due_at` (RFC 3339), not both. From now to 8 days ahead.
+- `prompt` (string, required, at most 8,000 bytes): the hidden first message of the woken turn.
+- `note` (string, optional, at most 1,000 bytes): shown with the wake.
+
+Response: `200`
+
+```json
+{"wake": {"id": "wk_0c1d2e3f405162738495a6b7", "session_id": "2026-10-14T12-04-05_018f3a2b-7c4d-7e5f-a6b7-8c9d0e1f2a3b", "source": "api", "due_at": "2026-10-14T12:34:05Z", "note": "build 41 running", "created_at": "2026-10-14T12:04:05Z"}, "replaced": null}
+```
+
+`replaced` is the wake it replaced, or `null`.
+
+Errors:
+
+- `400` invalid body, time out of range, missing or too long prompt
+- `403` administrator key required
+- `404` session not found
+- `409` an external agent's conversation cannot be woken
+- `503` wakes are unavailable
+
+Events: `session.wake`.
+
+### DELETE /v1/sessions/{id}/wake
+
+Auth: any key
+Effect: Cancels the lane's pending wake.
+
+Path: `id` conversation handle.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{"removed": true, "wake": {"id": "wk_0c1d2e3f405162738495a6b7", "session_id": "2026-10-14T12-04-05_018f3a2b-7c4d-7e5f-a6b7-8c9d0e1f2a3b", "source": "plugin:loop", "due_at": "2026-10-14T12:34:05Z", "created_at": "2026-10-14T12:04:05Z"}}
+```
+
+`removed` is false and `wake` `null` when there was none.
+
+Errors:
+
+- `404` session not found
+- `503` wakes are unavailable
+
+Events: `session.wake` when one was removed.
 
 ### POST /v1/sessions/{id}/user-questions/{qid}/answer
 

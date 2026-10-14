@@ -62,7 +62,7 @@ Sent once when the stream opens, before any other frame.
   "version": "1.4.0",
   "instance_id": "0123456789abcdef0123456789abcdef",
   "storage_space": { "data": "ok", "home": "low" },
-  "publishes": ["session.task", "bot.changed", "session.agent_usage", "tls.changed"]
+  "publishes": ["session.task", "bot.changed", "session.agent_usage", "tls.changed", "session.wake"]
 }
 ```
 
@@ -258,6 +258,21 @@ The Bot's saved state changed (profile, models, chats, tasks), its memory text o
 No `session_id`.
 
 Refetch: `GET /v1/bot`. If the memory view is open, also `GET /v1/bot/memory`.
+
+### session.wake
+
+A lane's pending [wake](http/runs.md#wakes) was set, replaced, cancelled, fired or dropped. Optional: sent only when `ready` lists it in `publishes`.
+
+```json
+{
+  "type": "session.wake",
+  "session_id": "2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd-ef0123456789"
+}
+```
+
+`session_id` is the lane's handle.
+
+Refetch: `GET /v1/wakes`.
 
 ### session.recap
 
