@@ -1,0 +1,45 @@
+{
+  "description": "Test vectors for POST /v1/identity/challenge. key_id and k are derived from key; proof = HMAC-SHA256(k, \"gyres-identity-v1\\n\" + nonce + \"\\n\" + instance_id + \"\\n\" + target + \"\\n\" + (target_ok ? \"1\" : \"0\")), lowercase hex.",
+  "vectors": [
+    {
+      "key": "gyres_0123456789abcdef01234567_00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+      "key_id": "0123456789abcdef01234567",
+      "k": "8ad32977a0380ab0932c8f4fc31d4c2672a0e4654342da072b15129f0fab2a81",
+      "nonce": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "instance_id": "5f0d3a8e2c7b4a1d9e6f8b2c4d1a7e3b",
+      "target": "http://192.168.1.20:17100",
+      "target_ok": true,
+      "proof": "fc8f2eed1b56f2255f2f884ae9b756f9b516d68ac680bcde6ac62ad376f3c11a"
+    },
+    {
+      "key": "gyres_0123456789abcdef01234567_00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+      "key_id": "0123456789abcdef01234567",
+      "k": "8ad32977a0380ab0932c8f4fc31d4c2672a0e4654342da072b15129f0fab2a81",
+      "nonce": "ffeeddccbbaa99887766554433221100",
+      "instance_id": "5f0d3a8e2c7b4a1d9e6f8b2c4d1a7e3b",
+      "target": "https://gyres.example.com",
+      "target_ok": false,
+      "proof": "cc8633718ca655f5ec9ed9db2a610132cb0968bc23e339eb08399a9a8d95d1cd"
+    },
+    {
+      "key": "gyres_a1b2c3d4e5f6a7b8c9d0e1f2_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "key_id": "a1b2c3d4e5f6a7b8c9d0e1f2",
+      "k": "d63264d2d5c2bd20688d2820138c9d94728ac4a1766514078c12851146fbb980",
+      "nonce": "8c1f2e3d4c5b6a798877665544332211",
+      "instance_id": "0a1b2c3d4e5f60718293a4b5c6d7e8f9",
+      "target": "http://[fe80::1%25en0]:15100",
+      "target_ok": true,
+      "proof": "9b1662f29742e49608efa23711fd8792e9de3768b66336a3fb894e7df0089943"
+    },
+    {
+      "key": "my-old-http-token",
+      "key_id": "legacy-fc87af6a0cb54073e70ec47a",
+      "k": "fc87af6a0cb54073e70ec47ae9437cbfc0381a063bf74067cfaeb6c6fe8687d6",
+      "nonce": "0f0e0d0c0b0a09080706050403020100",
+      "instance_id": "5f0d3a8e2c7b4a1d9e6f8b2c4d1a7e3b",
+      "target": "http://10.0.0.5:17100",
+      "target_ok": false,
+      "proof": "8baf8d24a19e6a1b884e186b03ae4bd9bd09aa81db6426bddafda370817d8242"
+    }
+  ]
+}

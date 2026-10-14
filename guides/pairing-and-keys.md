@@ -135,6 +135,10 @@ A missing `Authorization: Bearer` header, an unknown key, or a revoked key is `4
 - While Core is still opening, `GET /v1/identity` and `GET /v1/version` wait up to 10 seconds and may then answer `503` with `code` `core_starting` and `Retry-After: 5`. That starting answer does not require a key. These two routes keep answering while the data directory is unavailable or being moved.
 - `403` with the plain-text body `invalid host` means the `Host` header is not an IP address, `localhost`, or Core's configured HTTPS domain.
 
+## Before sending the key to a new address
+
+Once paired, a client usually knows several addresses for its Core (`addresses` from `GET /v1/identity`, local-network discovery). Before it sends the key to an address it did not just use, it can ask that address to prove it holds the key: `POST /v1/identity/challenge` with the key id, a fresh nonce and the origin it is calling, no key attached. Verify the HMAC with your own key and check `instance_id`; send the key only when both match. For a newly discovered address also require `target_ok` true. A Core older than this route answers `401`. Details and test vectors: [POST /v1/identity/challenge](../http/system.md#post-v1identitychallenge).
+
 ## See also
 
 - [Device pairing](../http/pairing.md)

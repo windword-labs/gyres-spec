@@ -4,7 +4,7 @@ Status, identity, disk and process counters, model-usage records, the task-round
 
 JSON responses are `application/json`. A failed request uses the usual error body (`error` plus `failure`) except where an endpoint shows another body. Do not match on `error` text; branch on the HTTP status and, where an endpoint gives one, on `code`.
 
-While Core is opening, `GET /health` answers `503` at once. Every other route in this file waits up to 10 seconds for Core to finish opening, then answers the same `503`: `code` is `core_starting`, `Retry-After` is `5`. That starting answer does not require an access key. While the data directory is unavailable or being moved, `GET /health`, `GET /v1/identity`, `GET /v1/version`, `GET /v1/tls` and `POST /v1/tls/issue` keep their normal answers. Every other route here then answers the storage `503` (`storage_unavailable`, `storage_maintenance` or `storage_slow`).
+While Core is opening, `GET /health` answers `503` at once. Every other route in this file waits up to 10 seconds for Core to finish opening, then answers the same `503`: `code` is `core_starting`, `Retry-After` is `5`. That starting answer does not require an access key. While the data directory is unavailable or being moved, `GET /health`, `GET /v1/identity`, `POST /v1/identity/challenge`, `GET /v1/version`, `GET /v1/tls` and `POST /v1/tls/issue` keep their normal answers. Every other route here then answers the storage `503` (`storage_unavailable`, `storage_maintenance` or `storage_slow`).
 
 Timestamps are UTC, RFC3339, and may include a fraction of a second.
 
@@ -626,6 +626,51 @@ Errors:
 
 - `503` the code runtime is not running in this Core. The body is only `{"error":"code runtime unavailable"}`, with no `failure`.
 - `503` the install could not start. The body is only `{"error":"<reason>"}`, with no `failure`. On a host other than macOS Apple silicon the reason is `managed Bun currently supports macOS arm64`. A later GET then has `state` `error` and the same text in `error`.
+
+Events: none.
+
+### POST /v1/identity/challenge
+
+Auth: none
+Effect: Proves that this Core holds a given access key, without the client sending that key. A client runs it before it sends its key to an address it is not sure about: an address found on the local network (the `_gyres._tcp` TXT `id` is public, so anything can claim it), or a saved address that may now belong to another device. Changes nothing. Nothing about the request is logged. The response sends `Cache-Control: no-store`.
+
+Request:
+
+```json
+{
+  "key_id": "0123456789abcdef01234567",
+  "nonce": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "target": "http://192.0.2.10:15100"
+}
+```
+
+- `key_id` (string, required, 1–64 characters) names the client's key without revealing it. For a key of the form `gyres_<id>_<secret>` it is `<id>`. For any other key it is `legacy-` followed by the first 24 lowercase hex characters of the SHA-256 of the whole key.
+- `nonce` (string, required) is 32 to 128 lowercase hex characters, an even number, fresh random for every challenge (send at least 16 random bytes; 32 is recommended).
+- `target` (string, required, at most 512 bytes, no control characters) is the `http` or `https` origin the client sent this request to: scheme, host and optional port, no path other than `/`, no query, fragment or user info.
+- The body is one JSON object of at most 4096 bytes with only these fields.
+
+Response: `200`
+
+```json
+{
+  "instance_id": "0123456789abcdef0123456789abcdef",
+  "target_ok": true,
+  "proof": "d9600a2ec1215ce953bcdd7ef1ea0893fde6ce3012a0f22c1acfa0dd97c9c761"
+}
+```
+
+- `instance_id` is the same value as in `GET /v1/identity`.
+- `target_ok` is true when `target` is one of the origins `GET /v1/identity` lists in `addresses` at this moment. Scheme and host compare without case and a missing port counts as 80 or 443. Forwarding headers are not used.
+- `proof` is 64 lowercase hex characters: `HMAC-SHA256(k, m)`, where `k` is the 32-byte SHA-256 of the full access key (UTF-8) and `m` is the UTF-8 text `gyres-identity-v1`, `nonce`, `instance_id`, `target` (exactly as sent) and `1` or `0` for `target_ok`, joined with `\n` (one newline byte, none at the end).
+- To verify, compute the same HMAC from your stored key, the nonce you sent, the target you sent and the `instance_id` and `target_ok` received, compare in constant time, and check `instance_id` against the one you saved for this Core. Send the key only when it matches. A relay that forwards your challenge to the real Core gets `target_ok` false, since your target names the relay, and cannot change the flag without breaking the proof. Accept `target_ok` false only for an address you already trust for other reasons (one you saved, for example behind a proxy or a port forward), never for a newly discovered one.
+- An unknown or malformed `key_id` answers the same way, with a proof that does not verify under any key, so the route does not reveal which key ids exist. A revoked or replaced key still gets a valid proof; sending it then returns `401`.
+- Test vectors: [identity-proof-vectors.json](../identity-proof-vectors.json).
+
+Errors:
+
+- `400` invalid request (body is not one JSON object of the fields above, a field is missing or malformed, or the body is larger than 4096 bytes)
+- `429` too many attempts; try again later. More than 60 challenges from one client address within one minute; the address is taken under the same trusted-proxy rules as pairing. The response sets `Retry-After: 60`.
+- `404` identity proof is not available (Core runs without access keys). A Core older than this route answers `401`, because it needs a key for every unknown route.
 
 Events: none.
 
