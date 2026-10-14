@@ -1,0 +1,36 @@
+# Gyres spec
+
+> The client contract of Gyres Core: HTTP endpoints, Server-Sent Events and guides for building a Gyres frontend. Latest release only. Every endpoint section starts with `### METHOD /path`, then `Auth:` (none / any key / admin), `Effect:`, Request, Response, Errors, Events.
+
+All files in one: [llms-full.txt](llms-full.txt)
+
+## Start
+
+- [README](README.md): basics, auth, compatibility with `GET /v1/version`
+- [Errors](errors.md): error body, coded errors, auth failures
+- [Events](events.md): every SSE event (Core-wide and per-run)
+- [Changelog](CHANGELOG.md): breaking changes per `api_version`
+
+## Guides
+
+- [Pairing and access keys: get a key, check role and api_version](guides/pairing-and-keys.md)
+- [List conversations and keep the list fresh](guides/list-conversations.md)
+- [Send a message and stream the reply](guides/send-and-stream.md)
+- [Stop a run and reattach to it](guides/stop-and-reattach.md)
+- [Tool approvals and user questions](guides/approvals.md)
+
+## HTTP reference
+
+- [External agents](http/agents.md)
+- [Tool approvals](http/approvals.md)
+- [Bot and chat channels](http/bot.md)
+- [Plugins, MCP, hooks, computer use and host screen](http/extensions.md)
+- [Files, attachments and search](http/files.md)
+- [Models and model settings](http/models.md)
+- [Device pairing](http/pairing.md)
+- [Projects and skills](http/projects.md)
+- [Runs: sending, streaming, stopping](http/runs.md)
+- [Scheduled tasks](http/schedules.md)
+- [Conversations](http/sessions.md)
+- [Storage, export and import](http/storage.md)
+- [System](http/system.md)
