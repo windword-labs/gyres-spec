@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.73.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.74.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -11135,7 +11135,6 @@ not JSON: read the status code, not the body.
 | `403` | `administrator key required` (JSON) | An `Auth: admin` route called with an ordinary key. Hide admin features for non-admin keys (`GET /v1/identity` tells you the role). |
 | `403` | `invalid host` (text) | The `Host` header is not an IP address, `localhost`, or Core's configured HTTPS domain. Connect by IP or by that domain. |
 | `403` | `manage configuration on the host` (text) | A route that only the Core host itself may use. |
-| `403` | `unknown source rejected` / `public source rejected (bind=lan)` (text) | Core is set to accept only local-network clients and the request came from elsewhere. |
 
 A key revoked while a request or stream is open ends that request within about
 a quarter of a second.
