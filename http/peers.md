@@ -66,24 +66,24 @@ Events: none.
 ### PUT /v1/peering
 
 Auth: admin
-Effect: Changes either switch. `enabled` turns Bot peering on or off; turning it on starts discovery. `advertise` starts or stops the Bonjour advertisement at once. Both are saved in Core's settings and survive a restart. Paired peers are kept when pairing is turned off.
+Effect: Changes either switch, or the name. `enabled` turns Bot peering on or off; turning it on starts discovery. `advertise` starts or stops the Bonjour advertisement at once. Both are saved in Core's settings and survive a restart. Paired peers are kept when pairing is turned off. `name` renames the Bot, whose name is how this Core introduces itself to Cores it pairs with afterwards; Cores already paired keep the name they saved.
 
 Request:
 
 ```json
-{ "enabled": true, "advertise": false }
+{ "enabled": true, "advertise": false, "name": "Studio" }
 ```
 
-- Both fields are optional booleans; an absent field is left as it is. No other fields.
+- All fields are optional; an absent field is left as it is. `enabled` and `advertise` are booleans; `name` is 1 to 60 characters after control characters are removed and spaces trimmed. No other fields.
 
 Response: `200`, the same body as `GET /v1/peering`.
 
 Errors:
 
-- `400` invalid settings request
+- `400` invalid settings request, or a `name` that is empty or longer than 60 characters
 - `403` administrator key required
 
-Events: `peers.changed`.
+Events: `peers.changed`; `bot.changed` when `name` is set.
 
 ### POST /v1/peering/codes
 

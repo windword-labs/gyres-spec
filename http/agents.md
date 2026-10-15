@@ -1,6 +1,6 @@
 # External agents
 
-External agents are Codex, Grok, pi and Claude Code installed on the computer that runs Core. A conversation can be handed to one of them. These routes save that setup, report whether the program is installed and signed in, and, for Codex and Grok, report usage and attach a session that was started in a terminal.
+External agents are Codex, Grok, pi and Claude Code installed on the computer that runs Core. A conversation can be handed to one of them. These routes save that setup, report whether the program is installed and signed in, report usage for Codex, Grok and Claude, and for Codex, Grok and Claude Code attach a session that was started in a terminal.
 
 The path values are `codex`, `grok`, `pi` and `claude`. Settings and status are Core-wide, one object per agent. Usage splits into the conversation's own totals and the account's quota.
 
@@ -37,7 +37,7 @@ An account object:
 
 - `kind`: `chatgpt`, `api_key`, `subscription` or `unknown`.
 - `plan`: omitted when empty.
-- `windows`: rate-limit windows, or `[]`. `id` is `5h` for 300 minutes, `weekly` for 10080, otherwise `Nd`, `Nh` or `Nm` from the length, or `primary` / `secondary` when the length is missing. A window with no length and `used_percent` 0 is left out. `resets_at` is UTC, omitted when unknown. `duration_mins` is omitted when unknown.
+- `windows`: rate-limit windows, or `[]`. For Codex, `id` is `5h` for 300 minutes, `weekly` for 10080, otherwise `Nd`, `Nh` or `Nm` from the length, or `primary` / `secondary` when the length is missing. A window with no length and `used_percent` 0 is left out. For Claude, `id` is the limit kind Claude names (`session`, `weekly_all`, `weekly_scoped`, and any later kind as sent), several windows may share an `id`, and there is no `duration_mins`; `label` is the model a scoped limit applies to, `severity` is Claude's level (`normal` or a warning level) and `is_active` is true for the limit Claude marks active. Each of these three is omitted when empty or false, and Codex sends none of them. `resets_at` is UTC, omitted when unknown. `duration_mins` is omitted when unknown.
 - `credits`: omitted when the account has none. `balance` is the agent's own credit unit, not a currency, and is omitted when it is not a number. `has_credits` and `unlimited` are booleans.
 - `unavailable_reason`: `not_signed_in`, `api_key` or `not_supported`. Omitted when `kind` is `chatgpt` and nothing is wrong. This is why `windows` is empty.
 - `updated_at`: UTC time of the last successful read, omitted when there is none.
@@ -639,7 +639,7 @@ Events: none.
 ### GET /v1/sessions/{id}/agent-usage
 
 Auth: any key
-Effect: Returns the Codex or Grok usage of one conversation, plus that agent's account quota. Any other conversation, including pi and Claude, answers with empty parts. Codex account data may wait on a read shared with the account route, up to 20 seconds; a failed read keeps the previous account.
+Effect: Returns the Codex, Grok or Claude usage of one conversation, plus that agent's account quota. Any other conversation, including pi, answers with empty parts. Codex account data may wait on a read shared with the account route, up to 20 seconds; a failed read keeps the previous account. Claude account data waits only for the first read since Core started (up to 30 seconds); later an answer older than 60 seconds is served while it is read again, and that read announces `session.agent_usage` for this conversation.
 
 Path: `id` conversation id, `2026-10-14T12-02-00_` plus a UUID. An unknown id or a conversation that does not exist is `404`.
 
@@ -682,12 +682,13 @@ Response: `200`
 {"agent": null, "account": null, "session": null}
 ```
 
-- `agent` is `codex` or `grok`, or `null` when this conversation is not one of those.
-- `session` is `null` until the agent has reported usage. Totals are cumulative as the agent reports them. For a session attached from a terminal they include turns from before the attach. `turns` counts turns finished here for Codex, and every turn of the session for Grok, because Grok numbers them itself.
-- `last_turn` is `null` until a turn has been counted. Its `total_tokens` is that turn's own total. Its `cost_usd` is `null` when that turn's estimate is unknown (the previous estimate was missed, or a thread attached from a terminal had usage but no earlier estimate).
-- `context` is `null` when no window is known. For Codex, `used_tokens` is the last request's total and `window_tokens` is the model window. For Grok, `used_tokens` is the last turn's input divided by the number of model calls in that turn (exact for one call, lower than the final call when there were several), and `window_tokens` is the context size of the model selected for the conversation, or the session's own figure. Grok's `context` is also `null` when that last turn made no model call.
+- `agent` is `codex`, `grok` or `claude`, or `null` when this conversation is not one of those.
+- `session` is `null` until the agent has reported usage. Totals are cumulative as the agent reports them. For a session attached from a terminal they include turns from before the attach. `turns` counts turns finished here for Codex and Claude, and every turn of the session for Grok, because Grok numbers them itself.
+- `last_turn` is `null` until a turn has been counted. Its `total_tokens` is that turn's own total. Its `cost_usd` is `null` when that turn's estimate is unknown (the previous estimate was missed, or a thread or session attached from a terminal had usage but no earlier estimate).
+- `context` is `null` when no window is known. For Codex, `used_tokens` is the last request's total and `window_tokens` is the model window. For Grok, `used_tokens` is the last turn's input divided by the number of model calls in that turn (exact for one call, lower than the final call when there were several), and `window_tokens` is the context size of the model selected for the conversation, or the session's own figure. Grok's `context` is also `null` when that last turn made no model call. For Claude, `used_tokens` is the last request's input including cache reads and writes, and `window_tokens` is the context window Claude reports for the turn's model.
 - `account` is the account object described above. It is `null` for Codex until a read has succeeded. For Grok it is always present: `kind` is `subscription`, `windows` is `[]`, `unavailable_reason` is `not_supported`, and `plan` is the tier from the last Grok detection, omitted when empty. Grok sends no `credits` or `updated_at`.
 - A Codex account with `kind` `api_key` has `unavailable_reason` `api_key` and `windows` `[]`. `kind` `unknown` uses `not_signed_in` when nobody is signed in, or `not_supported` for any other account type.
+- Claude's account is `null` until a read has succeeded (also while Claude is disabled). A subscription sign-in has `kind` `subscription` and `plan` (such as `max`); its `windows` are the plan limits, or `[]` with `unavailable_reason` `not_supported` when Claude reported none. An API key is `kind` `api_key` with `unavailable_reason` `api_key`. Signed out is `kind` `unknown` with `not_signed_in`; another sign-in (a cloud provider) is `unknown` with `not_supported`. `credits` is present only when Claude's extra usage is enabled: `has_credits` is true, `balance` is what is left of the monthly limit, or `null` when unknown, and `unlimited` is true when there is no monthly limit.
 
 Errors:
 
@@ -700,9 +701,9 @@ Events: none.
 ### GET /v1/local-agents/{agent}/account-usage
 
 Auth: any key
-Effect: Returns the same account object as the conversation usage route, before a conversation exists. `codex` may wait on the shared read (20 seconds, at most once a minute; a failed read keeps the last account). `grok` does not start Grok; it answers from the last detection.
+Effect: Returns the same account object as the conversation usage route, before a conversation exists. `codex` may wait on the shared read (20 seconds, at most once a minute; a failed read keeps the last account). `grok` does not start Grok; it answers from the last detection. `claude` shares the conversation route's cache and waits only for the first read.
 
-Path: `agent` is `codex` or `grok`.
+Path: `agent` is `codex`, `grok` or `claude`.
 
 Request: no body.
 
@@ -724,7 +725,7 @@ Response: `200`
 null
 ```
 
-- Codex is `null` until a read has succeeded. The fields are the account object on `GET /v1/sessions/{id}/agent-usage`.
+- Codex and Claude are `null` until a read has succeeded. The fields are the account object on `GET /v1/sessions/{id}/agent-usage`.
 - Grok is never `null`:
 
 ```json
@@ -744,9 +745,9 @@ Events: none.
 ### GET /v1/local-agents/{agent}/terminal-sessions
 
 Auth: any key (admin for an agent that does not allow non-administrators)
-Effect: Lists sessions the agent started on this computer outside Core, newest first, 30 a page. Codex includes threads from the CLI, an editor extension, a one-shot run and the desktop app, and leaves subagent threads out. Grok includes its stored sessions. A successful page may be reused for 15 seconds; whether a session is open, its directory is missing, or it is already attached is computed on every response. The request waits for the agent, up to 20 seconds.
+Effect: Lists sessions the agent started on this computer outside Core, newest first, 30 a page. Codex includes threads from the CLI, an editor extension, a one-shot run and the desktop app, and leaves subagent threads out. Grok includes its stored sessions. Claude Code includes every session it saved on this computer (read from its own session files; subagent transcripts and sessions without a prompt or a reply are left out). A successful page may be reused for 15 seconds; whether a session is open, its directory is missing, or it is already attached is computed on every response. The request waits for the agent, up to 20 seconds.
 
-Path: `agent` is `codex` or `grok`. `pi` and `claude` are known but unsupported.
+Path: `agent` is `codex`, `grok` or `claude`. `pi` is known but unsupported.
 
 Query: `scope` is `dir` or `all`. Omitted, it is `all`, or `dir` when `cwd` is present. `cwd` is the directory for `scope=dir` and must be absolute; it is ignored for `all`. `cursor` is the `next_cursor` of the previous page, omitted for the first page. Do not parse it.
 
@@ -777,10 +778,10 @@ Response: `200`
 ```
 
 - `sessions` is `[]` when there is nothing on this page. `next_cursor` is omitted on the last page. Rows Core started itself are removed, so a page can be shorter than 30 while `next_cursor` is still set. Keep paging until it is absent.
-- `id` is the agent's own session id. `cwd` is the agent's own directory string and must be sent back unchanged to attach. `title` may be `""`. Codex titles are one line and at most 100 characters, using the thread name or else the start of its first message. Grok titles are as Grok reports them.
-- `updated_at` is UTC RFC3339 for Codex. For Grok it is the timestamp string Grok reported.
+- `id` is the agent's own session id. `cwd` is the agent's own directory string and must be sent back unchanged to attach. `title` may be `""`. Codex and Claude titles are one line and at most 100 characters, using the thread name (Claude: the name given with `/rename`, else Claude's generated title) or else the start of its first message. Grok titles are as Grok reports them.
+- `updated_at` is UTC RFC3339 for Codex and Claude (for Claude, when its session file was last written). For Grok it is the timestamp string Grok reported.
 - `preview` is the start of the first prompt on one line, at most 120 characters, ending with `…` when cut. It is omitted when empty.
-- `model` is omitted when empty. `sandbox` and `message_count` are filled for Grok when it has a summary, and omitted for Codex (Codex does not report them on this list). `message_count` is also omitted when 0.
+- `model` is omitted when empty. `sandbox` and `message_count` are filled for Grok when it has a summary, and omitted for Codex (Codex does not report them on this list). Claude has no sandbox; its `model` is the full model ID of the last reply (such as `claude-opus-5-5`) and `message_count` counts prompts and replies with text. `message_count` is also omitted when 0.
 - `in_use` is true when a terminal has the session open. `cwd_missing` is true when `cwd` is not a directory on the Core host. `attached_conversation_id` is set when this session was attached and that conversation still exists. A session Core started stays hidden after its conversation is deleted. An attached terminal session is listed again after its conversation is deleted, and can be attached again.
 
 Errors:
@@ -788,16 +789,17 @@ Errors:
 - `400` scope must be dir or all
 - `400` cwd must be an absolute directory on the Core host
 - `400` Terminal sessions are not supported for pi yet
-- `400` Terminal sessions are not supported for Claude yet
 - `400` Codex is disabled in Settings → External agents
 - `400` Grok is disabled in Settings → External agents
+- `400` Claude is disabled in Settings → External agents
 - `400` Codex executable was not found
 - `400` Grok executable was not found
+- `400` invalid cursor
 - `403` Ask an administrator to turn on "Allow non-administrators" for Codex in Settings → External agents.
 - `404` unknown external agent
 - `500` the agent could not list sessions, or the bindings could not be read
 
-The `403` names the agent (`Codex` or `Grok`). `pi` and `claude` are rejected with the unsupported `400` before that check. The disabled and missing-program `400` name whichever agent was asked.
+The `403` names the agent (`Codex`, `Grok` or `Claude`). `pi` is rejected with the unsupported `400` before that check. `invalid cursor` is Claude's answer to a cursor it did not issue. The disabled and missing-program `400` name whichever agent was asked.
 
 Events: none.
 
@@ -806,7 +808,7 @@ Events: none.
 Auth: any key (admin for an agent that does not allow non-administrators)
 Effect: Binds a terminal session to a conversation and copies its history into the transcript. A new conversation is created when this session is not already attached. Attaching it again returns the conversation it already has; if that import never finished, the history is imported again and rows already written are not repeated. A failed create removes the new conversation. The call waits for the import and stops after 5 minutes.
 
-Path: `agent` is `codex` or `grok`. `external_id` is the `id` from the list. A blank id is rejected.
+Path: `agent` is `codex`, `grok` or `claude`. `external_id` is the `id` from the list. A blank id is rejected.
 
 Request:
 
@@ -827,8 +829,8 @@ Response: `200`
 ```
 
 - `session_id` is the conversation. `existing` is false when this call created it, and true when the session was already attached to a conversation that still exists.
-- Imported transcript rows carry `importedFrom` `terminal`. They are history the agent already has, so they are not sent again. A Codex thread whose sandbox is neither `read-only` nor `workspace-write` continues under the saved Codex sandbox.
-- The conversation's title is set from the session when it has one and the conversation has none. Codex keeps the thread's model and effort when that model is offered; an effort the model does not offer is dropped, and a model that is not offered is replaced by the first offered model with the effort cleared. With no model list yet, both are kept. Grok keeps the session's model when it has one, and otherwise uses the first model Grok offers.
+- Imported transcript rows carry `importedFrom` `terminal`. They are history the agent already has, so they are not sent again. A Codex thread whose sandbox is neither `read-only` nor `workspace-write` continues under the saved Codex sandbox. A Claude session continues under the saved Claude permission mode and Gyres approvals, whatever permission mode it ran with in the terminal; its origin has no `sandbox`.
+- The conversation's title is set from the session when it has one and the conversation has none. Codex keeps the thread's model and effort when that model is offered; an effort the model does not offer is dropped, and a model that is not offered is replaced by the first offered model with the effort cleared. With no model list yet, both are kept. Grok keeps the session's model when it has one, and otherwise uses the first model Grok offers. Claude maps the session's full model ID to the offered model of the same ID or family (`claude-opus-5-5` becomes `opus`), else the first offered model; effort follows the Codex rule.
 
 Errors:
 
@@ -836,9 +838,9 @@ Errors:
 - `400` missing session id
 - `400` cwd must be the session's directory exactly as listed
 - `400` Terminal sessions are not supported for pi yet
-- `400` Terminal sessions are not supported for Claude yet
 - `400` Codex is disabled in Settings → External agents
 - `400` Grok is disabled in Settings → External agents
+- `400` Claude is disabled in Settings → External agents
 - `400` Codex executable was not found
 - `400` Grok executable was not found
 - `400` project not found
@@ -847,13 +849,15 @@ Errors:
 - `400` create the project library, or create the conversation directory, when that directory cannot be created
 - `403` Ask an administrator to turn on "Allow non-administrators" for Codex in Settings → External agents.
 - `404` unknown external agent
+- `404` Claude session file not found
+- `404` invalid Claude session ID
 - `409` This Codex session already belongs to a Gyres conversation
 - `409` This session is open in a terminal. Exit it there first, then attach it.
 - `409` The session's directory no longer exists on the Core host
 - `409` turn already running
 - `500` the history could not be imported, or the conversation could not be created
 
-`invalid project cwd` includes the path and the reason. The "already belongs" `409` names the agent (`Codex` or `Grok`) and is a session Core itself started. `turn already running` also covers a conversation that cannot accept the import right now. The `403` names the agent, as on the list route.
+`invalid project cwd` includes the path and the reason. The "already belongs" `409` names the agent (`Codex`, `Grok` or `Claude`) and is a session Core itself started. `turn already running` also covers a conversation that cannot accept the import right now. The `403` names the agent, as on the list route.
 
 Events: `sessions.changed`, `session.messages`, `session.settings`
 

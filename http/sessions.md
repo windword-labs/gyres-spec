@@ -124,7 +124,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 
 `executor` is `gyres` unless an external agent owns the conversation, then `codex`, `grok`, `pi`, or `claude`. If more than one binding is present, the last one applied wins, in that order, so Claude wins over pi, Grok, then Codex. `executor_model` is that binding's model. `executor_options` for Codex is `{"reasoning_effort","service_tier"}`, either of which may be `""`. For Grok, pi, and Claude it is `{"reasoning_effort"}` only.
 
-`origin` is a Bot origin, unless a Codex or Grok binding carries a terminal origin, which replaces it. pi and Claude do not set `origin`.
+`origin` is a Bot origin, unless a Codex, Grok or Claude binding carries a terminal origin, which replaces it. pi does not set `origin`.
 
 ```json
 { "source": "bot", "bot_session_id": "2026-10-14T11-00-00_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "task_id": "bot_0123456789abcdef0123456789abcdef" }

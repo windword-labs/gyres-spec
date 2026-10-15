@@ -301,7 +301,7 @@ Refetch: `GET /v1/sessions/{id}/recap`.
 
 ### session.agent_usage
 
-Usage stored for an external agent on this conversation changed: new token totals, a finished agent turn, or a rate-limit update during the run. Optional: listed in `ready.publishes`.
+Usage stored for an external agent on this conversation changed: new token totals, a finished agent turn, a rate-limit update during the run, or a background read of the Claude account the conversation asked for. Optional: listed in `ready.publishes`.
 
 ```json
 {
