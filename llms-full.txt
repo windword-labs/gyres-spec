@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.72.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.73.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -7196,7 +7196,7 @@ Scheduled tasks are plans Core runs on its own clock. A client lists and edits p
 
 A plan id and a result id are 32 lowercase hex characters. A conversation id looks like `2026-10-14T12-00-00_01234567-89ab-cdef-0123-456789abcdef`. A message id looks like `msg_01234567-89ab-cdef-0123-456789abcdef`. A project id is a UUID. Timestamps are UTC, with fractional seconds when Core has them.
 
-Every route below needs an access key. Every route answers `503` before doing anything else when the scheduler is not running (`scheduler is not running`) or its storage has failed (`scheduler storage unavailable:` plus the cause). Successful bodies are JSON. A failure uses the usual JSON error object; match on the HTTP status.
+Every route below needs an access key. Every route except the two `/v1/schedule-settings` routes answers `503` before doing anything else when the scheduler is not running (`scheduler is not running`) or its storage has failed (`scheduler storage unavailable:` plus the cause). Successful bodies are JSON. A failure uses the usual JSON error object; match on the HTTP status.
 
 A plan is one JSON object. Create and update send the fields below; a saved plan adds the server fields.
 
@@ -7215,6 +7215,7 @@ A plan is one JSON object. Create and update send the fields below; a saved plan
 - `max_runs` (int, optional): `0` means no limit (the field is then omitted on output). Otherwise `1` to `100000`. Finished executions count, including failed and cancelled ones. A queued execution that pause, complete or delete cancels before it has been picked up does not count.
 - `monitor` (bool): always present on output. When true, an execution may record a result as quiet (kept, and not unread). Errors are never quiet.
 - `deliver` (string): where a finished result is also sent. `local` means the scheduled list only. `main` is the Bot main chat. Any other token must be one of `deliver_kinds` from the list route (`feishu` and `discord` when that channel is configured). Several targets are comma-separated; Core trims, lowercases and de-duplicates them, and drops `local` when another target remains. The stored value is either `local` or a comma-separated list with no spaces, such as `main,feishu`. `origin` is rejected on these routes. On create, an empty or omitted `deliver` is stored as `local`. On update, an empty or omitted `deliver` keeps the stored value. A plan saved with no `deliver` is returned as `local`.
+- `notify` (string): which finished results count as unread and mark their conversation (see `unseen` on the conversation list). `all`: every result. `errors`: only results that did not succeed (`failed`, `interrupted`, `cancelled`); a `succeeded` result is saved already `read`. `never`: every result is saved already `read` and no conversation is marked. `default`: the Core-wide level from `GET /v1/schedule-settings`, read when each result finishes. A quiet result is never unread and never marks its conversation, whatever the level; a level never makes a result louder than `all` would. Core trims and lowercases the value. On create, an empty or omitted `notify` is stored as `default`. On update, an empty or omitted `notify` keeps the stored value. A plan saved with no `notify` is returned as `default`. It does not change `deliver`.
 - `id` (string): plan id. Set by Core.
 - `state` (string): `active` (the clock will start it), `paused` or `completed`. A deleted plan is not returned.
 - `reason` (string, omitted when empty): why a plan was paused because an execution could not start (the conversation or its workspace is gone, or the access key that last saved the plan was revoked). Update and resume clear it.
@@ -7234,7 +7235,7 @@ A result is one execution. The list route adds `standalone` and `archived` to ea
 - `state`: `queued`, `running`, `succeeded`, `failed`, `cancelled`, `interrupted` or `recoverable`. `interrupted` will not be replayed. `recoverable` is waiting to continue the same execution.
 - `summary`: the execution's answer, omitted when empty. Longer than 4000 bytes, it is cut to 1000 Unicode code points. The conversation holds the full answer.
 - `error`, `warning`: omitted when empty. `warning` means a tool step failed or was blocked.
-- `quiet` (bool): kept, and excluded from the unread count. `read` (bool): someone opened it. `manual` (bool): started by the `run` action rather than the clock.
+- `quiet` (bool): kept, and excluded from the unread count. `read` (bool): someone opened it, or the plan's `notify` level saved it read. `manual` (bool): started by the `run` action rather than the clock.
 - `recovery`, `cancel_requested`, `complete_plan`, `pause_plan` (bools, omitted when false). `cancel_requested` means a running execution has been told to stop. `complete_plan` means the execution met its stopping condition and, when the plan was `active`, the plan is now `completed`. `pause_plan` means this execution paused the plan; the plan's `reason` is the result's `error`.
 - `deliver_to` (string, omitted when nothing is delivered): the plan's targets at the time a `succeeded` non-quiet run, or a `failed` run, finished. Quiet, cancelled and interrupted results omit it. `delivered_at` is when Core claimed that delivery (at most once). `delivery_error` is one or more `target: reason` entries joined by `; `.
 - `standalone` (bool): this result's conversation was created for a standalone plan. A receipt with `mode` `standalone` and a `session_id` is standalone. A receipt with no `mode` is standalone only when its plan is standalone, the conversation is not one that plan follows, and no other result shares the conversation. An unknown plan counts as not standalone.
@@ -7245,7 +7246,7 @@ A result is one execution. The list route adds `standalone` and `archived` to ea
 ### GET /v1/schedules
 
 Auth: any key
-Effect: Returns every plan that has not been deleted, plus one page of results, the unread count, and the channel kinds a plan may deliver to. Nothing is changed.
+Effect: Returns every plan that has not been deleted, plus one page of results, the unread count, the channel kinds a plan may deliver to, and the Core-wide notification level. Nothing is changed.
 
 Query: `job_id` (string, optional) limits `runs` to that plan. `offset` (int, default 0) skips that many results after the filter; negative and non-numeric values are read as 0, and an offset past the end is clamped to the filtered count. The page size is 100 and is not a parameter.
 
@@ -7264,6 +7265,7 @@ Response: `200`
       "timing": { "kind": "interval", "seconds": 3600 },
       "monitor": false,
       "deliver": "local",
+      "notify": "default",
       "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
       "state": "active",
       "next_run_at": "2026-10-14T13:00:00Z",
@@ -7297,7 +7299,8 @@ Response: `200`
   "total_runs": 1,
   "unread": 1,
   "next_offset": 1,
-  "deliver_kinds": ["feishu"]
+  "deliver_kinds": ["feishu"],
+  "notify_default": "all"
 }
 ```
 
@@ -7306,6 +7309,7 @@ Response: `200`
 - `total_runs` is the filtered count before paging. `next_offset` is the offset of the next page; it equals `total_runs` on the last page, including a request whose offset was already past the end.
 - `unread` counts finished results that are not `read` and not `quiet`, across every plan. The filter and the page do not change it.
 - `deliver_kinds` is the configured channel kinds in display order, or `[]`. Send one of these, `local`, or `main` in `deliver`.
+- `notify_default` is the Core-wide level a plan with `notify` `default` uses: `all`, `errors` or `never`.
 
 Errors:
 
@@ -7329,12 +7333,13 @@ Request:
   "timing": { "kind": "interval", "seconds": 3600 },
   "max_runs": 30,
   "until": "2026-12-01T00:00:00Z",
-  "deliver": "main,feishu"
+  "deliver": "main,feishu",
+  "notify": "errors"
 }
 ```
 
 - The body is one JSON object of at most 131072 bytes, the plan fields in the introduction. Unknown fields are ignored.
-- `monitor` omitted is false. `deliver` omitted or blank is stored as `local`.
+- `monitor` omitted is false. `deliver` omitted or blank is stored as `local`. `notify` omitted or blank is stored as `default`.
 - A `followup` body sends `session_id` and omits `project_id`.
 
 Response: `200`
@@ -7350,6 +7355,7 @@ Response: `200`
   "max_runs": 30,
   "monitor": false,
   "deliver": "main,feishu",
+  "notify": "errors",
   "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
   "state": "active",
   "next_run_at": "2026-10-14T13:00:00Z",
@@ -7386,6 +7392,7 @@ Errors:
 - `400` Claude or Grok unattended use is off (`Claude is not allowed to run unattended. Turn on "Allow unattended use" for Claude in Settings → External agents to let scheduled tasks use it.`; the same sentence with Grok)
 - `400` deliver `origin` is only available when the plan is saved from a Bot chat
 - `400` unknown delivery target (the message lists `local`, `main` and the configured kinds, or says no channels are configured)
+- `400` notify must be default, all, errors or never
 - `503` scheduler is not running, or scheduler storage is unavailable
 
 Events: `schedules.changed`
@@ -7409,7 +7416,7 @@ Request:
 }
 ```
 
-- The same object as create, at most 131072 bytes. Fields you omit are cleared: `max_runs` becomes unlimited, `until` is removed, `monitor` becomes false, and `provider_id` and `model` become empty. `deliver` omitted or blank keeps the stored value.
+- The same object as create, at most 131072 bytes. Fields you omit are cleared: `max_runs` becomes unlimited, `until` is removed, `monitor` becomes false, and `provider_id` and `model` become empty. `deliver` and `notify` omitted or blank keep the stored value.
 - Rejected while `active_run_id` is set. Cancel or wait for that execution first.
 
 Response: `200`
@@ -7423,6 +7430,7 @@ Response: `200`
   "timing": { "kind": "daily", "time": "09:00", "timezone": "America/Los_Angeles" },
   "monitor": false,
   "deliver": "local",
+  "notify": "default",
   "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
   "state": "active",
   "next_run_at": "2026-10-15T16:00:00Z",
@@ -7631,6 +7639,48 @@ Events: `schedules.changed`, `sessions.changed`
 
 `sessions.changed` is sent when a conversation is removed. When nothing is removed, no event is sent.
 
+### GET /v1/schedule-settings
+
+Auth: any key
+Effect: Returns the Core-wide notification level that plans with `notify` `default` use. Nothing is changed. This route answers while the scheduler is not running.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{ "notify": "all" }
+```
+
+`notify` is `all` (every finished result is unread and marks its conversation), `errors` (only results that did not succeed) or `never`. A Core that was never set returns `all`.
+
+Errors: none.
+
+Events: none.
+
+### PUT /v1/schedule-settings
+
+Auth: admin
+Effect: Sets the Core-wide notification level and returns it. Results that finish after this use it; results already saved are not changed. This route answers while the scheduler is not running.
+
+Request:
+
+```json
+{ "notify": "errors" }
+```
+
+- `notify` (string, required): `all`, `errors` or `never`, trimmed and lowercased. `default` is not a Core-wide value. Unknown fields are rejected.
+
+Response: `200`, the same body as `GET /v1/schedule-settings`.
+
+Errors:
+
+- `400` invalid settings request (the body is not JSON, has unknown fields, or is larger than 131072 bytes)
+- `400` notify must be all, errors or never
+- `403` administrator key required
+
+Events: `schedules.changed`
+
 
 <!-- file: http/sessions.md -->
 
@@ -7665,7 +7715,7 @@ Timestamps written by these routes (`created`, `modified`, `pinned_at`, `archive
 
 A list row can have `running: true` and `run_state: "paused"`. A leftover receipt can have `running: false` and `run_state` `interrupted`, `paused`, or `blocked`.
 
-`unseen` is `""`, `result` (a completed run ended after the conversation was last marked seen), or `failed`. A cancelled run does not mark the conversation, and a child conversation (one with a parent) does not either. On a live list row `unseen` is always present; `""` means nothing unseen.
+`unseen` is `""`, `result` (a completed run ended after the conversation was last marked seen), or `failed`. A cancelled run does not mark the conversation, and a child conversation (one with a parent) does not either. A scheduled task's run marks it only as its plan's `notify` level allows (see the scheduled tasks reference). On a live list row `unseen` is always present; `""` means nothing unseen.
 
 ## List rows
 

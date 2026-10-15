@@ -29,7 +29,7 @@ Timestamps written by these routes (`created`, `modified`, `pinned_at`, `archive
 
 A list row can have `running: true` and `run_state: "paused"`. A leftover receipt can have `running: false` and `run_state` `interrupted`, `paused`, or `blocked`.
 
-`unseen` is `""`, `result` (a completed run ended after the conversation was last marked seen), or `failed`. A cancelled run does not mark the conversation, and a child conversation (one with a parent) does not either. On a live list row `unseen` is always present; `""` means nothing unseen.
+`unseen` is `""`, `result` (a completed run ended after the conversation was last marked seen), or `failed`. A cancelled run does not mark the conversation, and a child conversation (one with a parent) does not either. A scheduled task's run marks it only as its plan's `notify` level allows (see the scheduled tasks reference). On a live list row `unseen` is always present; `""` means nothing unseen.
 
 ## List rows
 
