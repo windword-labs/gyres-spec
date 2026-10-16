@@ -261,6 +261,33 @@ Errors:
 
 Events: `schedules.changed`
 
+### PUT /v1/schedules/{job}/notify
+
+Auth: any key
+Effect: Changes the plan's `notify` level and its `updated_at` time, nothing else, and returns the plan. Its state, timing, `next_run_at`, `reason`, active run and the access key executions use stay as they are, so a running, paused or completed plan accepts it. A run still in progress settles with the new level.
+
+Path: `job` plan id.
+
+Request:
+
+```json
+{ "notify": "never" }
+```
+
+`notify` is `all`, `errors`, `never` or `default` (trimmed, case-insensitive); it is required.
+
+Response: `200`, the plan as in `GET /v1/schedules` `jobs`.
+
+Errors:
+
+- `400` invalid body (not JSON, or larger than 4096 bytes)
+- `400` notify must be default, all, errors or never (also when it is missing or empty)
+- `404` schedule not found (unknown or deleted plan)
+- `500` the plan could not be saved
+- `503` scheduler is not running, or scheduler storage is unavailable
+
+Events: `schedules.changed`
+
 ### POST /v1/schedules/{job}/{action}
 
 Auth: any key
@@ -341,7 +368,7 @@ Sent when at least one conversation is newly archived.
 ### POST /v1/schedule-runs/{run}/read
 
 Auth: any key
-Effect: Marks one result read, finished or not. The unread count drops when that result was finished and not quiet. Marking it again is a success.
+Effect: Marks one result read, finished or not, and marks its conversation seen (its `unseen` clears). The unread count drops when that result was finished and not quiet. Marking it again is a success.
 
 Path: `run` result id.
 
@@ -358,7 +385,7 @@ Errors:
 - `400` result not found (`file does not exist`), or the result could not be saved
 - `503` scheduler is not running, or scheduler storage is unavailable
 
-Events: `schedules.changed`
+Events: `schedules.changed`; `sessions.changed` when the conversation was unseen
 
 ### POST /v1/schedule-runs/{run}/archive
 

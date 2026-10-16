@@ -607,6 +607,30 @@ Errors:
 
 Events: `sessions.changed` when `changed` is true.
 
+### POST /v1/sessions/seen
+
+Auth: any key
+Effect: Marks every main conversation seen, archived ones included, and every finished scheduled-task result read. After it, no list row has `unseen` set and the scheduled tasks' `unread` count is `0`, so a badge built from either reaches zero. Side lanes keep their own marks. Safe to call again. When the scheduler is not running or its storage is unavailable, the conversations are still marked and `runs_read` is `0`.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "sessions": ["2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd-ef0123456789"],
+  "runs_read": 2
+}
+```
+
+`sessions` lists the conversations that were unseen and are now seen (`[]` when none). `runs_read` counts the results it marked read.
+
+Errors:
+
+- `500` a seen mark or a result could not be saved; marks written before the failure stay
+
+Events: `sessions.changed` for each conversation in `sessions`; `schedules.changed` when a result was marked read.
+
 ### POST /v1/sessions/{id}/fork
 
 Auth: any key

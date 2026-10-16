@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.77.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.78.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -1768,7 +1768,7 @@ Response: `200`
 - Request fields that are present when set: `tool_identity` (string), `tool_wide` (true), `policy_session` (parent conversation id), `tool_label` (text to show), `once_only` (true), `scope`, `reason`, `resolver`, `finished_at`. They are omitted when empty. `unattended` false is still present.
 - `tool` is the tool name. For an external agent it is `codex`, `grok`, `pi` or `claude`. `tool_identity` is then `agent:<agent>`, or `agent:<agent>:<operation>` when the grant covers one operation type; `tool_label` is the agent name, or that name, ` · `, and a short operation phrase. A plugin tool uses a `plugin:` identity. `tool_label` is otherwise a short label such as `exec_command · process guard` or `Computer use / ` plus the app name.
 - `resource` is the text to show for the target. For `write` and `edit` it is the absolute file path. Otherwise it is a description of the call, often the arguments as JSON text. `input` is the tool arguments as a JSON value. `cwd` is the working directory. `run_id` identifies the run that asked. `tool_call_id` identifies the call inside that run.
-- `resolver` is set when this route did not make the decision. It is `hook:` plus a handler id when a hook allowed that one call, or `panel:` plus a plugin id when a plugin panel did. Those records are `approved` with `scope` `once`.
+- `resolver` is set when this route did not make the decision. It is `hook:` plus a handler id when a hook allowed that one call, or `panel:` plus a plugin id when a plugin panel did; those records are `approved` with `scope` `once`. It is `policy:unattended` on a `denied` record that the unattended policy refused (including a once-only request in an unattended run).
 - On a grant, `tool_identity`, `tool_wide` and `tool_label` are omitted when empty, and `session_id` is omitted when the scope is `global`. `cwd` and `key` may be empty strings. `created_at` is when the grant was stored.
 
 Errors:
@@ -7453,6 +7453,33 @@ Errors:
 
 Events: `schedules.changed`
 
+### PUT /v1/schedules/{job}/notify
+
+Auth: any key
+Effect: Changes the plan's `notify` level and its `updated_at` time, nothing else, and returns the plan. Its state, timing, `next_run_at`, `reason`, active run and the access key executions use stay as they are, so a running, paused or completed plan accepts it. A run still in progress settles with the new level.
+
+Path: `job` plan id.
+
+Request:
+
+```json
+{ "notify": "never" }
+```
+
+`notify` is `all`, `errors`, `never` or `default` (trimmed, case-insensitive); it is required.
+
+Response: `200`, the plan as in `GET /v1/schedules` `jobs`.
+
+Errors:
+
+- `400` invalid body (not JSON, or larger than 4096 bytes)
+- `400` notify must be default, all, errors or never (also when it is missing or empty)
+- `404` schedule not found (unknown or deleted plan)
+- `500` the plan could not be saved
+- `503` scheduler is not running, or scheduler storage is unavailable
+
+Events: `schedules.changed`
+
 ### POST /v1/schedules/{job}/{action}
 
 Auth: any key
@@ -7533,7 +7560,7 @@ Sent when at least one conversation is newly archived.
 ### POST /v1/schedule-runs/{run}/read
 
 Auth: any key
-Effect: Marks one result read, finished or not. The unread count drops when that result was finished and not quiet. Marking it again is a success.
+Effect: Marks one result read, finished or not, and marks its conversation seen (its `unseen` clears). The unread count drops when that result was finished and not quiet. Marking it again is a success.
 
 Path: `run` result id.
 
@@ -7550,7 +7577,7 @@ Errors:
 - `400` result not found (`file does not exist`), or the result could not be saved
 - `503` scheduler is not running, or scheduler storage is unavailable
 
-Events: `schedules.changed`
+Events: `schedules.changed`; `sessions.changed` when the conversation was unseen
 
 ### POST /v1/schedule-runs/{run}/archive
 
@@ -8292,6 +8319,30 @@ Errors:
 - `500` the seen mark could not be saved
 
 Events: `sessions.changed` when `changed` is true.
+
+### POST /v1/sessions/seen
+
+Auth: any key
+Effect: Marks every main conversation seen, archived ones included, and every finished scheduled-task result read. After it, no list row has `unseen` set and the scheduled tasks' `unread` count is `0`, so a badge built from either reaches zero. Side lanes keep their own marks. Safe to call again. When the scheduler is not running or its storage is unavailable, the conversations are still marked and `runs_read` is `0`.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "sessions": ["2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd-ef0123456789"],
+  "runs_read": 2
+}
+```
+
+`sessions` lists the conversations that were unseen and are now seen (`[]` when none). `runs_read` counts the results it marked read.
+
+Errors:
+
+- `500` a seen mark or a result could not be saved; marks written before the failure stay
+
+Events: `sessions.changed` for each conversation in `sessions`; `schedules.changed` when a result was marked read.
 
 ### POST /v1/sessions/{id}/fork
 
