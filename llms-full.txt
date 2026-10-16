@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.80.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.81.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
