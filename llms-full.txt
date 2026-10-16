@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.78.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.79.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -7300,7 +7300,7 @@ Response: `200`
   "unread": 1,
   "next_offset": 1,
   "deliver_kinds": ["feishu"],
-  "notify_default": "all"
+  "notify_default": "errors"
 }
 ```
 
@@ -7309,7 +7309,7 @@ Response: `200`
 - `total_runs` is the filtered count before paging. `next_offset` is the offset of the next page; it equals `total_runs` on the last page, including a request whose offset was already past the end.
 - `unread` counts finished results that are not `read` and not `quiet`, across every plan. The filter and the page do not change it.
 - `deliver_kinds` is the configured channel kinds in display order, or `[]`. Send one of these, `local`, or `main` in `deliver`.
-- `notify_default` is the Core-wide level a plan with `notify` `default` uses: `all`, `errors` or `never`.
+- `notify_default` is the Core-wide level a plan with `notify` `default` uses: `all`, `errors` or `never`; `errors` on a Core that was never set.
 
 Errors:
 
@@ -7676,10 +7676,10 @@ Request: no body.
 Response: `200`
 
 ```json
-{ "notify": "all" }
+{ "notify": "errors" }
 ```
 
-`notify` is `all` (every finished result is unread and marks its conversation), `errors` (only results that did not succeed) or `never`. A Core that was never set returns `all`.
+`notify` is `all` (every finished result is unread and marks its conversation), `errors` (only results that did not succeed) or `never`. A Core that was never set returns `errors`.
 
 Errors: none.
 
