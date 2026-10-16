@@ -29,7 +29,7 @@ Timestamps written by these routes (`created`, `modified`, `pinned_at`, `archive
 
 A list row can have `running: true` and `run_state: "paused"`. A leftover receipt can have `running: false` and `run_state` `interrupted`, `paused`, or `blocked`.
 
-`unseen` is `""`, `result` (a completed run ended after the conversation was last marked seen), or `failed`. A cancelled run does not mark the conversation, and a child conversation (one with a parent) does not either. A scheduled task's run marks it only as its plan's `notify` level allows (see the scheduled tasks reference). On a live list row `unseen` is always present; `""` means nothing unseen.
+`unseen` is `""`, `result` (a completed run ended after the conversation was last marked seen), or `failed`. A cancelled run does not mark the conversation, and a child conversation (one with a parent) does not either. A scheduled task's run marks it only as its plan's `notify` level allows (see the scheduled tasks reference). On a live list row `unseen` is always present; `""` means nothing unseen. `unseen_kind` is who started that run: `user`, `scheduled`, `bot_task`, `external`, `wake`, `goal`, or `recovery`. It is omitted when `unseen` is `""` or the mark was written before this field existed.
 
 ## List rows
 
@@ -61,6 +61,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 - `workspace`, when present, is the workspace view below. It is omitted when the conversation has no workspace, and also when that binding cannot be read.
 - `scheduled`, when present, is `{"job_id","name","run_id"}` for a conversation a standalone scheduled run created.
 - `origin`, when present on a list row, is only a Bot origin (below). A terminal import's origin is not on the list.
+- `unseen_kind` is omitted when `unseen` is `""`. When present it is `user`, `scheduled`, `bot_task`, `external`, `wake`, `goal`, or `recovery`.
 
 `archived=true` (exactly that string; `1`, `True`, and a missing parameter are the live list) returns archived rows, newest `archived_at` first. Bot conversations are omitted. Side lanes are not rows.
 

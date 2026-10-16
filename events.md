@@ -552,6 +552,8 @@ A tool call finished, or a call in a truncated reply was failed without running.
 
 Refetch: nothing. Show `result` on that call. This `result` has no `tool_call_id` or `tool_name`; those are on `call`.
 
+In a Claude conversation a call that starts a subagent or a background shell (`claude.Agent`, `claude.Bash` with `run_in_background`) stays running until that work reports back, so its `tool_end` can arrive after later text and calls, also after Claude's reply: the run stays open until the work reports back and Claude's answer to it follows in the same run. Find the call by `call.id` in any earlier message, not only the last one.
+
 ### tool_blocked
 
 The call did not run: the run was cancelled, a queued user message skipped the rest of the batch, or the same calls were repeated until they were stopped.
@@ -738,6 +740,45 @@ The conversation's goal was created, replaced, paused, completed, blocked, or st
 - `continuations` is how many automatic continuations have run. It is present even at 0.
 
 Refetch: `GET /v1/sessions/{id}/goal` if this frame was missed. Otherwise apply `goal` (that route returns `{ "goal": <this object> }`).
+
+### claude_activity
+
+Claude conversations only. What Claude is doing besides its main reply: the subagents and background shells it runs, and whether a model request is in flight. Each frame carries the whole current state and replaces the previous one. It is live only: nothing of it is stored in the transcript, and the run's last frame is an empty one.
+
+```json
+{
+  "type": "claude_activity",
+  "requesting": false,
+  "tasks": [
+    {
+      "id": "a335822b5468dff4d",
+      "kind": "agent",
+      "subagent_type": "Explore",
+      "description": "List current directory files",
+      "tool_use_id": "toolu_01CZJyxUk3re97fyA58Em64k",
+      "started_at": "2026-10-16T08:06:41.120Z",
+      "last_tool": "Glob",
+      "tokens": 20446,
+      "steps": [{ "tool": "Glob", "text": "*" }]
+    },
+    {
+      "id": "bw98pcz48",
+      "kind": "shell",
+      "description": "Sleep 3 seconds then echo background-done",
+      "tool_use_id": "toolu_01WYbkYAPjq53cAoFDTyDpbq",
+      "started_at": "2026-10-16T08:06:39.600Z"
+    }
+  ]
+}
+```
+
+- `requesting` is `true` while a model request is waiting for its first output.
+- `tasks` is in start order. `kind` is `agent` (a subagent) or `shell` (a background shell); another value can appear for other kinds of background work.
+- `subagent_type`, `last_tool`, `tokens`, `tool_use_id` and `steps` are omitted when unknown or empty. `tool_use_id` is the `call.id` of the call that started the task.
+- `started_at` is when Core first saw the task (UTC); show elapsed time from it.
+- `steps` are the subagent's latest few steps, oldest first: a tool call (`tool` plus a short `text` of its argument) or a message (`text` only, its first line).
+
+Refetch: nothing. An observation that resumes (`run_resume`) gets the current frame right after `run_resume`, even when it was sent before the point it resumes from.
 
 ### model_fallback
 
