@@ -45,6 +45,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
   "first_message": "Sketch the layout",
   "title": "Layout",
   "pinned_at": "2026-10-14T12:06:00.000Z",
+  "model": {"provider_id": "example-provider", "model": "example-model"},
   "running": false,
   "run_state": "idle",
   "unseen": ""
@@ -58,6 +59,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 - A context record has `metadata.contextUpdateKey` of `workspace_environment`, `current_date`, `bot_memory`, or `workspace_roots_status`.
 - `title` is omitted when no custom title is stored. Clients then show `first_message`.
 - `pinned_at` is omitted when the conversation is not pinned. Pinning again keeps the original time.
+- `model` is `{"provider_id","model"}` of the conversation's saved `settings` (`GET /v1/sessions/{id}/settings`), without reasoning effort or speed. It is omitted when no model is saved; a turn then uses the Settings default. An external-agent conversation carries the agent's provider id (`local-codex`, `local-grok`, `local-pi`, `local-claude`).
 - `workspace`, when present, is the workspace view below. It is omitted when the conversation has no workspace, and also when that binding cannot be read.
 - `scheduled`, when present, is `{"job_id","name","run_id"}` for a conversation a standalone scheduled run created.
 - `origin`, when present on a list row, is only a Bot origin (below). A terminal import's origin is not on the list.
