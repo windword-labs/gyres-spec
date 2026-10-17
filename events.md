@@ -552,6 +552,8 @@ A tool call finished, or a call in a truncated reply was failed without running.
 
 Refetch: nothing. Show `result` on that call. This `result` has no `tool_call_id` or `tool_name`; those are on `call`.
 
+A `run_code` script can call tools itself. Each such call sends its own `tool_start` and `tool_end` while the `run_code` call is still running, with `call.id` `<run_code id>/<n>` (for example `call_1/3`); show it as a tool row after the `run_code` call, and an approval card for it names that id. Their `tool_end` content is shortened for display. In the stored transcript these calls are only in the `run_code` result's `details.nested_calls`: a list of `{ id, name, input, output, is_error, duration_ms }` (`input` is omitted when large, `output` is shortened), which a client shows the same way after a reload.
+
 In a Claude conversation a call that starts a subagent or a background shell (`claude.Agent`, `claude.Bash` with `run_in_background`) stays running until that work reports back, so its `tool_end` can arrive after later text and calls, also after Claude's reply: the run stays open until the work reports back and Claude's answer to it follows in the same run. Find the call by `call.id` in any earlier message, not only the last one.
 
 ### tool_blocked
