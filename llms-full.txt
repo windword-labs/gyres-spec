@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.87.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.88.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -1548,7 +1548,7 @@ Effect: Lists sessions the agent started on this computer outside Core, newest f
 
 Path: `agent` is `codex`, `grok` or `claude`. `pi` is known but unsupported.
 
-Query: `scope` is `dir` or `all`. Omitted, it is `all`, or `dir` when `cwd` is present. `cwd` is the directory for `scope=dir` and must be absolute; it is ignored for `all`. `cursor` is the `next_cursor` of the previous page, omitted for the first page. Do not parse it.
+Query: `scope` is `dir` or `all`. Omitted, it is `all`, or `dir` when `cwd` is present. `cwd` is the directory for `scope=dir` and must be absolute; it is ignored for `all`. `scope=dir` lists sessions whose directory is `cwd` or anywhere below it, comparing real paths: both sides are cleaned (a trailing `/` removed) and symbolic links are resolved as far as the path exists, then compared exactly (case-sensitively, also on a case-insensitive volume). `/a/bc` is not below `/a/b`. `cursor` is the `next_cursor` of the previous page, omitted for the first page. Do not parse it.
 
 Request: no body.
 
@@ -1561,7 +1561,8 @@ Response: `200`
       "agent": "grok",
       "id": "thread-7c2e9a",
       "title": "Fix the login form",
-      "cwd": "/home/dev/app",
+      "cwd": "/home/dev/app/web",
+      "relative_cwd": "web",
       "updated_at": "2026-10-14T11:40:00Z",
       "preview": "The login form rejects valid passwords",
       "model": "grok-model",
@@ -1578,6 +1579,7 @@ Response: `200`
 
 - `sessions` is `[]` when there is nothing on this page. `next_cursor` is omitted on the last page. Rows Core started itself are removed, so a page can be shorter than 30 while `next_cursor` is still set. Keep paging until it is absent.
 - `id` is the agent's own session id. `cwd` is the agent's own directory string and must be sent back unchanged to attach. `title` may be `""`. Codex and Claude titles are one line and at most 100 characters, using the thread name (Claude: the name given with `/rename`, else Claude's generated title) or else the start of its first message. Grok titles are as Grok reports them.
+- `relative_cwd` (`scope=dir` only) is the session's directory below `cwd`, `/` separated, such as `web` or `mywork/gyres`. It is omitted when the session is in `cwd` itself and for `scope=all`. It is for display; attach with `cwd`.
 - `updated_at` is UTC RFC3339 for Codex and Claude (for Claude, when its session file was last written). For Grok it is the timestamp string Grok reported.
 - `preview` is the start of the first prompt on one line, at most 120 characters, ending with `…` when cut. It is omitted when empty.
 - `model` is omitted when empty. `sandbox` and `message_count` are filled for Grok when it has a summary, and omitted for Codex (Codex does not report them on this list). Claude has no sandbox; its `model` is the full model ID of the last reply (such as `claude-opus-5-5`) and `message_count` counts prompts and replies with text. `message_count` is also omitted when 0.
@@ -1598,7 +1600,7 @@ Errors:
 - `404` unknown external agent
 - `500` the agent could not list sessions, or the bindings could not be read
 
-The `403` names the agent (`Codex`, `Grok` or `Claude`). `pi` is rejected with the unsupported `400` before that check. `invalid cursor` is Claude's answer to a cursor it did not issue. The disabled and missing-program `400` name whichever agent was asked.
+The `403` names the agent (`Codex`, `Grok` or `Claude`). `pi` is rejected with the unsupported `400` before that check. `invalid cursor` is the answer to a cursor Core did not issue (Claude, and `scope=dir` for every agent). The disabled and missing-program `400` name whichever agent was asked.
 
 Events: none.
 
