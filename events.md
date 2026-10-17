@@ -491,7 +491,7 @@ The assistant message for this step is complete. For a reply cut off at the outp
 }
 ```
 
-- `message` is an assistant message without `role`. Fields are the assistant fields listed above. `error_message` is always present (`null` or a string). `failure` is present when `error_message` is a string. A reply streamed from a model also carries `duration_ms`, `request_id` and `step` (omitted when unset).
+- `message` is an assistant message without `role`. Fields are the assistant fields listed above. `error_message` is always present (`null` or a string). `failure` is present when `error_message` is a string. A reply streamed from a model also carries `duration_ms`, `request_id`, `step`, `provider_id`, `model`, `started_at` and `first_token_at` (each omitted when unset; `first_token_at` also when nothing streamed).
 
 Refetch: nothing. Replace the streamed text of this step with `message`.
 

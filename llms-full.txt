@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.85.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.86.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -7917,6 +7917,7 @@ Assistant:
 - `failure`, when `error_message` was set, is `{code, message, details, http_status}`. Display `failure.message`. `error_message` is the safe original. `details` is that same safe text. `http_status` is omitted when the failure did not carry one. `code` is `request_failed`, `invalid_request`, `authentication_failed`, `permission_denied`, `not_found`, `timeout`, `request_too_large`, `unsupported_media`, `rate_limited`, `service_unavailable`, or `connection_failed`. This is not the route error's `core_request_failed`.
 - `duration_ms` is the model call that produced the reply, from sending the request to the end of its stream, in milliseconds. It is omitted when unset (older messages, replies Core built itself).
 - `request_id` and `step` name that model call: the `request_id` and `step` of its usage rows and of the `usage` event. Each is omitted when unset (older messages, replies Core built itself, `step` outside a run's steps).
+- `provider_id` and `model` name the model that answered that call (the fallback model when one answered). `started_at` (RFC 3339) is when the request went to the provider, the start of `duration_ms`, and `first_token_at` when its stream delivered the first output; with `duration_ms` they give the call's output speed and first-token latency. Each is omitted when unset (older messages, replies Core built itself); `first_token_at` is also omitted when nothing streamed.
 - `kind`, when set, is `compaction_summary`, `stopped`, `truncated`, or `failed_attempt`.
 - `fallback`, when a fallback model answered: `provider_id`, `model`, `from_provider_id`, `from_model`, `reason`, and `status` (omitted when there was no HTTP status). `reason` is `rate_limit`, `server_error`, `timeout`, `network`, `model_not_found`, `auth`, or `balance`.
 - `provider_history`, when present: `memory_version` (omitted when empty), `scope`, and `output` (an array of JSON values). It is opaque replay data. A client can ignore it for display.
@@ -8539,6 +8540,57 @@ Errors:
 - `500` the agent binding or the settings could not be read or saved
 
 Events: `session.settings` when the saved choice changes.
+
+### GET /v1/sessions/{id}/usage
+
+Auth: any key
+Effect: Returns one conversation's token totals and output speed, broken down by the model that answered, computed from its usage records (the same rows as `GET /v1/usage`). A lane handle covers only that lane's rows; a conversation id covers only the main conversation.
+
+Path: `id` session id or lane handle. An unknown id or a conversation that does not exist is `404`.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "session_id": "2026-10-17T10-00-00_…",
+  "totals": {
+    "input_tokens": 41000, "output_tokens": 6900, "cache_read_tokens": 32000, "cache_write_tokens": 0,
+    "cost_usd": null, "calls": 19, "timed_calls": 17, "speed_tps": 66.1, "first_token_median_ms": 1100
+  },
+  "models": [
+    {"provider_id": "volc", "model": "glm-5", "purpose": "chat", "fallback": false, "calls": 14, "timed_calls": 13, "output_tokens": 5600, "speed_tps": 81.3, "first_token_median_ms": 1100},
+    {"provider_id": "deepseek", "model": "deepseek-v4", "purpose": "chat", "fallback": true, "calls": 3, "timed_calls": 3, "output_tokens": 900, "speed_tps": 40.2, "first_token_median_ms": 2300},
+    {"provider_id": "volc", "model": "glm-5-flash", "purpose": "compaction", "fallback": false, "calls": 2, "timed_calls": 0, "output_tokens": 400, "speed_tps": null, "first_token_median_ms": null}
+  ],
+  "agent": null
+}
+```
+
+An external-agent conversation (Codex, Grok, Claude):
+
+```json
+{
+  "session_id": "…",
+  "totals": {"input_tokens": 52000, "output_tokens": 6900, "cache_read_tokens": 40000, "cache_write_tokens": 0, "cost_usd": 0.09, "calls": 0, "timed_calls": 0, "speed_tps": null, "first_token_median_ms": null},
+  "models": [],
+  "agent": {"executor": "claude", "turns": 7, "timed_turns": 7, "output_tokens": 6900, "speed_tps": 22.4, "speed_basis": "api_duration"}
+}
+```
+
+- A model call is **timed** when it has a first-token time, finished after it, and its usage was reported with output tokens. `speed_tps` is Σ output tokens of timed calls ÷ Σ (stream end − first token) of those calls in seconds, to one decimal; never an average of per-call speeds. `first_token_median_ms` is the median of (first token − request sent) over timed calls. Both are `null` when `timed_calls` is 0, never 0. Untimed calls count in `calls` only.
+- `totals` token counts and `cost_usd` cover every row, external-agent turns included. `calls`, `timed_calls`, `speed_tps` and `first_token_median_ms` cover Core's own model calls only. `cost_usd` is `null` when no row carried a cost (Core does not price its own requests; external agents report their own estimate).
+- `models` has one row per provider, model, purpose and `fallback` (true when a model of the fallback chain served the call in place of the conversation's model). `purpose` is `chat` for the conversation's own turns; anything else (`compaction`, `memory_review`, a plugin's purpose) is background work on the conversation's behalf. `chat` rows come first, then by `output_tokens` descending. External-agent turns are not listed here.
+- `agent` is `null` unless the conversation is bound to an external agent or has turns from one; a bound conversation before its first turn has zero counts. External agents only report per-turn durations, so a turn counts toward `speed_tps` (`timed_turns`) when its usage was reported and it has a duration. `speed_basis` is `api_duration` when every such turn carried the agent's own time in model requests (Claude), else `turn_wall_clock`, the turn's wall-clock time including tools. `speed_tps` is `null` when no turn counts.
+
+Errors:
+
+- `404` session not found
+- `500` cannot read usage records
+- `500` a binding cannot be read
+
+Events: none. Refetch after a run's `usage` frames or `session.agent_usage`.
 
 ### GET /v1/sessions/{id}/workspace
 
@@ -10752,7 +10804,7 @@ The assistant message for this step is complete. For a reply cut off at the outp
 }
 ```
 
-- `message` is an assistant message without `role`. Fields are the assistant fields listed above. `error_message` is always present (`null` or a string). `failure` is present when `error_message` is a string. A reply streamed from a model also carries `duration_ms`, `request_id` and `step` (omitted when unset).
+- `message` is an assistant message without `role`. Fields are the assistant fields listed above. `error_message` is always present (`null` or a string). `failure` is present when `error_message` is a string. A reply streamed from a model also carries `duration_ms`, `request_id`, `step`, `provider_id`, `model`, `started_at` and `first_token_at` (each omitted when unset; `first_token_at` also when nothing streamed).
 
 Refetch: nothing. Replace the streamed text of this step with `message`.
 
