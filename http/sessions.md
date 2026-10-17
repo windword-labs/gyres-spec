@@ -202,7 +202,8 @@ Assistant:
 - `usage` always includes the four token counts (0 included). `cache_usage_reported` is added when true.
 - `error_message` is always present: a string, or `null`. Credentials are stripped.
 - `failure`, when `error_message` was set, is `{code, message, details, http_status}`. Display `failure.message`. `error_message` is the safe original. `details` is that same safe text. `http_status` is omitted when the failure did not carry one. `code` is `request_failed`, `invalid_request`, `authentication_failed`, `permission_denied`, `not_found`, `timeout`, `request_too_large`, `unsupported_media`, `rate_limited`, `service_unavailable`, or `connection_failed`. This is not the route error's `core_request_failed`.
-- `duration_ms` is omitted when unset.
+- `duration_ms` is the model call that produced the reply, from sending the request to the end of its stream, in milliseconds. It is omitted when unset (older messages, replies Core built itself).
+- `request_id` and `step` name that model call: the `request_id` and `step` of its usage rows and of the `usage` event. Each is omitted when unset (older messages, replies Core built itself, `step` outside a run's steps).
 - `kind`, when set, is `compaction_summary`, `stopped`, `truncated`, or `failed_attempt`.
 - `fallback`, when a fallback model answered: `provider_id`, `model`, `from_provider_id`, `from_model`, `reason`, and `status` (omitted when there was no HTTP status). `reason` is `rate_limit`, `server_error`, `timeout`, `network`, `model_not_found`, `auth`, or `balance`.
 - `provider_history`, when present: `memory_version` (omitted when empty), `scope`, and `output` (an array of JSON values). It is opaque replay data. A client can ignore it for display.

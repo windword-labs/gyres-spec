@@ -491,7 +491,7 @@ The assistant message for this step is complete. For a reply cut off at the outp
 }
 ```
 
-- `message` is an assistant message without `role`. Fields are the assistant fields listed above. `error_message` is always present (`null` or a string). `failure` is present when `error_message` is a string.
+- `message` is an assistant message without `role`. Fields are the assistant fields listed above. `error_message` is always present (`null` or a string). `failure` is present when `error_message` is a string. A reply streamed from a model also carries `duration_ms`, `request_id` and `step` (omitted when unset).
 
 Refetch: nothing. Replace the streamed text of this step with `message`.
 
@@ -507,9 +507,20 @@ Token counts for the model step that just finished. Also sent when the reply is 
     "output_tokens": 3,
     "cache_read_tokens": 0,
     "cache_write_tokens": 0
-  }
+  },
+  "request_id": "0daf6465-91f2-4451-b8f9-295a9c65442a",
+  "step": 1,
+  "provider_id": "openai",
+  "model": "gpt-5",
+  "started_at": "2026-10-17T09:33:23.484329Z",
+  "first_token_at": "2026-10-17T09:33:23.912067Z",
+  "finished_at": "2026-10-17T09:33:24.488132Z"
 }
 ```
+
+- `request_id` and `step` name the model call, as on its usage rows and on the reply's `message_complete`. `step` counts from 1 within the run and is omitted outside a run's steps.
+- `provider_id` and `model` are what the call was sent to (the fallback model when one answered).
+- `started_at` is when the request was sent, `finished_at` when its stream ended (RFC 3339). `first_token_at` is when the first text, reasoning or tool-call fragment arrived; it is omitted when none did. Output speed is `output_tokens` over `finished_at` − `first_token_at`.
 
 Refetch: nothing. The conversation usage routes stay the source of stored totals.
 
