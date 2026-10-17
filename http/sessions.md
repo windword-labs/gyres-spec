@@ -778,7 +778,7 @@ Response: `200`
 
 - `settings` is `null` when no model is saved. A title with no model still returns `null`. When present, `provider_id`, `model`, `reasoning_effort`, `speed`, and `updated_at` are always included. Empty `reasoning_effort` or `speed` means the model's default. `updated_by` is the id of the access key that saved the choice, never the secret, and is omitted when unset. `title` is omitted when unset. `PUT` settings does not change `title`.
 - `effective` is the saved choice, else the Settings default, else the first available model. A saved external-agent model on a Bot conversation counts as unset. The four fields are always present; `reasoning_effort` and `speed` may be `""`.
-- `channel_model`, when this conversation is a Bot channel chat and a non-external channel model is set, has the same four fields as `effective`. Channel turns use it instead of `settings`. It is omitted otherwise.
+- In a Bot chat (main chat, side chat or channel chat) the conversation has no model of its own: `settings` is the Bot model (or `null` when unset), `effective` is the Bot model, else the Settings default, else the first available model, and `bot` is `{"scope": "bot", "bot_model", "task_model"}`, each model `{provider_id, model, reasoning_effort, speed}` or `null` when unset. `bot` is omitted outside Bot chats.
 
 Errors:
 
@@ -807,6 +807,7 @@ Request:
 
 - `provider_id` and `model` (strings) are required and must name a model that is available now.
 - `reasoning_effort` and `speed` (strings, optional) must be empty for a provider model. For an external agent, a non-empty `reasoning_effort` must be one that model offers. `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
+- `target` (string, optional) applies only in a Bot chat: `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). Outside Bot chats it is ignored.
 - The body is at most 4096 bytes. Other fields are ignored.
 
 A conversation an external agent owns can stay on that agent. Pointing it at a provider, or at a different external agent, is refused. A Bot conversation cannot be pointed at an external agent.
@@ -817,6 +818,7 @@ Errors:
 
 - `404` session not found
 - `400` invalid json
+- `400` `target must be "bot" or "task"`
 - `400` provider_id and model are required
 - `400` unknown or unavailable model
 - `400` reasoning_effort and speed currently require an external agent model
@@ -826,7 +828,7 @@ Errors:
 - `409` `This conversation uses {Label}; start a new conversation to switch agents`
 - `500` the agent binding or the settings could not be read or saved
 
-Events: `session.settings` when the saved choice changes.
+Events: `session.settings` when the saved choice changes; in a Bot chat, for every Bot chat when the Bot model changes, and `bot.changed`.
 
 ### GET /v1/sessions/{id}/usage
 

@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.88.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.89.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -1933,8 +1933,8 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `name` (string) is `Gyres Bot` until a save. A save stores the trimmed name.
 - `description` (string) is built-in delegation guidance until the owner saves one. A stored description that is empty, or exactly `Your persistent local assistant.`, is filled with that guidance once, before any request. A save stores the trimmed description, including `""`, and a later empty save stays empty.
 - `main_session_id` (string) is the current main chat. The first read or write that needs it creates the chat.
-- `task_provider_id` and `task_model` (strings, always present) choose the model for a new background task. Both `""` means Core's default model resolution. A non-empty pair is pinned for every new task: the fallback chain is not used. A pair that names an external agent is ignored at task creation as if it were unset.
-- `channel_provider_id` and `channel_model` (strings, always present) choose the model for turns a channel starts in that kind's current chat. Both `""` means the chat's own saved model, then the Settings default, then the first model Core can use. A non-empty pair wins over the chat's own setting. An external-agent pair is ignored the same way.
+- `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the one model of every Bot chat (main chat, side chats, each channel kind's chat, including chats `/new` creates). Both `""` means the Settings default, then the first model Core can use. A Bot chat's own saved model is not used; `PUT /v1/sessions/{id}/settings` in any Bot chat sets this pair. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
+- `task_provider_id` and `task_model` (strings, always present) choose the model for a new background task. Both `""` means the Bot model, then Core's default model resolution. A non-empty pair is pinned for every new task: the fallback chain is not used. A pair that names an external agent is ignored at task creation as if it were unset.
 - `system_prompt` (string) is the prompt Bot conversations receive: a fixed introduction, then ` Your name is <name>.` when the name is non-empty, then a space and the description when that is non-empty, then a fixed style section. Memory is not part of this string.
 - `chats` (array) is every Bot chat, oldest first. See Chats.
 - `channel_chats` (object) maps a kind (`feishu`, `discord`) to the session id of the chat that kind talks to now. Kinds with no chat yet are absent. `{}` when none are bound.
@@ -2072,8 +2072,8 @@ Response: `200`
   "main_session_id": "2026-10-14T12-02-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b",
   "task_provider_id": "",
   "task_model": "",
-  "channel_provider_id": "",
-  "channel_model": "",
+  "bot_provider_id": "",
+  "bot_model": "",
   "chats": [
     {
       "session_id": "2026-10-14T12-02-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b",
@@ -2102,7 +2102,7 @@ Events: `sessions.changed` and `bot.changed` when this read creates the main cha
 ### PUT /v1/bot
 
 Auth: any key
-Effect: Saves the name and description, and optionally the task model or the channel model. The description sent here is kept as sent, including empty. Also creates the main chat if it does not exist yet.
+Effect: Saves the name and description, and optionally the task model or the Bot model. The description sent here is kept as sent, including empty. Also creates the main chat if it does not exist yet.
 
 Request:
 
@@ -2117,7 +2117,7 @@ Request:
 
 - `name` (string, required). Trimmed. Empty or whitespace-only is rejected. The body is one JSON object of at most 16384 bytes.
 - `description` (string). Trimmed. Omitted is `""` and clears a description already saved. Send the current description back when a save should keep it.
-- `task_provider_id` and `task_model` (strings). Omit both to leave the task model unchanged. Send both as `""` to clear it. Send both non-empty to pin it. Any other combination is rejected, including one empty and one non-empty. The same rule applies to `channel_provider_id` and `channel_model`.
+- `task_provider_id` and `task_model` (strings). Omit both to leave the task model unchanged. Send both as `""` to clear it. Send both non-empty to pin it. Any other combination is rejected, including one empty and one non-empty. The same rule applies to `bot_provider_id` and `bot_model`.
 - A non-empty provider id of `local-codex`, `local-grok`, `local-pi`, or `local-claude` is rejected. Other fields are ignored.
 
 Response: `200` the profile, same shape as `GET /v1/bot`, after the save and after the main chat exists.
@@ -2126,7 +2126,8 @@ Errors:
 
 - `400` bot name is required. Also for a body that is not JSON or is larger than 16384 bytes.
 - `400` task_provider_id and task_model must be set together
-- `400` channel_provider_id and channel_model must be set together
+- `400` bot_provider_id and bot_model must be set together
+- `400` unknown or unavailable model (a Bot model that is not available now)
 - `400` Bot conversations run on a configured provider, not an external agent
 - `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat happens after a successful save.
 
@@ -2336,7 +2337,7 @@ Events: `sessions.changed` and `bot.changed` on success.
 ### POST /v1/bot/tasks
 
 Auth: any key
-Effect: Creates a hidden background task, records it, and starts it. The task uses the Bot's task model when one is pinned, otherwise Core's default model resolution. The response is sent while `status` is still `queued`; the run then moves it to `running`. Creates the main chat first when it does not exist yet.
+Effect: Creates a hidden background task, records it, and starts it. The task uses the Bot's task model when one is pinned, otherwise the Bot model, otherwise Core's default model resolution. The response is sent while `status` is still `queued`; the run then moves it to `running`. Creates the main chat first when it does not exist yet.
 
 Request:
 
@@ -8493,7 +8494,7 @@ Response: `200`
 
 - `settings` is `null` when no model is saved. A title with no model still returns `null`. When present, `provider_id`, `model`, `reasoning_effort`, `speed`, and `updated_at` are always included. Empty `reasoning_effort` or `speed` means the model's default. `updated_by` is the id of the access key that saved the choice, never the secret, and is omitted when unset. `title` is omitted when unset. `PUT` settings does not change `title`.
 - `effective` is the saved choice, else the Settings default, else the first available model. A saved external-agent model on a Bot conversation counts as unset. The four fields are always present; `reasoning_effort` and `speed` may be `""`.
-- `channel_model`, when this conversation is a Bot channel chat and a non-external channel model is set, has the same four fields as `effective`. Channel turns use it instead of `settings`. It is omitted otherwise.
+- In a Bot chat (main chat, side chat or channel chat) the conversation has no model of its own: `settings` is the Bot model (or `null` when unset), `effective` is the Bot model, else the Settings default, else the first available model, and `bot` is `{"scope": "bot", "bot_model", "task_model"}`, each model `{provider_id, model, reasoning_effort, speed}` or `null` when unset. `bot` is omitted outside Bot chats.
 
 Errors:
 
@@ -8522,6 +8523,7 @@ Request:
 
 - `provider_id` and `model` (strings) are required and must name a model that is available now.
 - `reasoning_effort` and `speed` (strings, optional) must be empty for a provider model. For an external agent, a non-empty `reasoning_effort` must be one that model offers. `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
+- `target` (string, optional) applies only in a Bot chat: `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). Outside Bot chats it is ignored.
 - The body is at most 4096 bytes. Other fields are ignored.
 
 A conversation an external agent owns can stay on that agent. Pointing it at a provider, or at a different external agent, is refused. A Bot conversation cannot be pointed at an external agent.
@@ -8532,6 +8534,7 @@ Errors:
 
 - `404` session not found
 - `400` invalid json
+- `400` `target must be "bot" or "task"`
 - `400` provider_id and model are required
 - `400` unknown or unavailable model
 - `400` reasoning_effort and speed currently require an external agent model
@@ -8541,7 +8544,7 @@ Errors:
 - `409` `This conversation uses {Label}; start a new conversation to switch agents`
 - `500` the agent binding or the settings could not be read or saved
 
-Events: `session.settings` when the saved choice changes.
+Events: `session.settings` when the saved choice changes; in a Bot chat, for every Bot chat when the Bot model changes, and `bot.changed`.
 
 ### GET /v1/sessions/{id}/usage
 
@@ -11344,6 +11347,20 @@ Each entry:
 
     - What changed (endpoint, field or event).
       Migration: what a client must do.
+
+## api_version 2 (Gyres 0.89.0)
+
+- `GET`/`PUT /v1/bot`: `channel_provider_id` and `channel_model` are gone,
+  replaced by `bot_provider_id` and `bot_model`, the one model of every Bot
+  chat (main, side and channel chats). The task model now falls back to it.
+  Migration: read and write `bot_provider_id`/`bot_model`; Core fills them once
+  from the main chat's saved model, else the old channel model.
+- `GET`/`PUT /v1/sessions/{id}/settings` in a Bot chat: `settings` and
+  `effective` are the Bot model, `channel_model` is gone and `bot` is new; a
+  `PUT` there sets the Bot model for every Bot chat (or, with `target: "task"`,
+  the task model).
+  Migration: drop `channel_model`; treat a model switch in a Bot chat as a
+  Bot-wide change.
 
 ## api_version 1 (the first Gyres release with `GET /v1/version`)
 

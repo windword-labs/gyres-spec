@@ -16,6 +16,20 @@ Each entry:
     - What changed (endpoint, field or event).
       Migration: what a client must do.
 
+## api_version 2 (Gyres 0.89.0)
+
+- `GET`/`PUT /v1/bot`: `channel_provider_id` and `channel_model` are gone,
+  replaced by `bot_provider_id` and `bot_model`, the one model of every Bot
+  chat (main, side and channel chats). The task model now falls back to it.
+  Migration: read and write `bot_provider_id`/`bot_model`; Core fills them once
+  from the main chat's saved model, else the old channel model.
+- `GET`/`PUT /v1/sessions/{id}/settings` in a Bot chat: `settings` and
+  `effective` are the Bot model, `channel_model` is gone and `bot` is new; a
+  `PUT` there sets the Bot model for every Bot chat (or, with `target: "task"`,
+  the task model).
+  Migration: drop `channel_model`; treat a model switch in a Bot chat as a
+  Bot-wide change.
+
 ## api_version 1 (the first Gyres release with `GET /v1/version`)
 
 First published version of this spec. `GET /v1/version` is new; a Core that
