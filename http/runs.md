@@ -416,7 +416,7 @@ Request:
 
 - Message fields are [Message input](#message-input). `prompt` may be `""` when `attachments` is non-empty.
 - `provider_id` and `model` (strings, optional). Omit both to use this conversation's model, then the settings default, then the first available model. If either is sent, that pair is used as given. A conversation whose saved model is no longer available fails until another model is chosen.
-- `reasoning_effort` and `service_tier` (strings, optional) apply only when the model is Codex, Grok, pi or Claude. Empty means the model's default. `service_tier` is rejected for Grok, pi and Claude, and must be one Codex offers (`default` is accepted). A provider model rejects either field.
+- `reasoning_effort` and `service_tier` (strings, optional). Empty means the model's default. `service_tier` applies only to Codex: it is rejected for Grok, pi, Claude and provider models, and must be one Codex offers (`default` is accepted). For a provider model, a `reasoning_effort` not among its `reasoning_efforts` is dropped and the turn runs on the model's default.
 - `cwd` (string, optional) is the working directory for this turn. Empty uses the conversation's workspace.
 - `system_prompt` (string, optional) replaces the default style for a provider model. A blank value keeps the default. A Bot conversation ignores it. Codex, Grok, pi and Claude reject a non-empty value.
 - `context_settings` (object, optional) is rejected for Codex, Grok, pi and Claude. For a provider model, `context_window` is an integer from 4096 to 10000000. `output_reserve`, `keep_recent_tokens`, `summary_max_tokens` and `threshold_tokens` are optional integers; omitted or 0 uses 4096, 20000, 2048, and `context_window - output_reserve`. The summary must fit in the output reserve, recent messages must fit under the threshold, and the threshold must leave the output reserve inside the window.
@@ -433,7 +433,7 @@ Errors:
 - `400` the prompt, references, attachments or placements were rejected. Stable messages include `unknown reference type`, `at most 64 references`, `reference label too long`, `too many input placements`, `invalid or duplicated input marker`, `invalid reference placement`, `invalid image placement`, `invalid input placement type`, `A message can contain at most 20 images`, `Images in one message exceed the 40 MiB limit`, `Invalid attachment ID`, `Image attachment not found`, `The selected model does not support images; remove the images or choose another model`
 - `400` unknown or unconfigured model, or `missing endpoint or model`
 - `400` `This conversation's model setting (<model>) is no longer available. Choose another model.`
-- `400` `Model options currently require an external agent`
+- `400` `Response speed currently requires an external agent` (`service_tier` on a provider model)
 - `400` `context_window must be between 4096 and 10000000`, or `invalid context budgets: reserve output and leave room for summary plus recent messages`
 - `400` invalid project cwd, when `cwd` cannot be used
 - `400` `Bot conversations run on a configured provider, not an external agent`

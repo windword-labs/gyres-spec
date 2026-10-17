@@ -806,7 +806,7 @@ Request:
 ```
 
 - `provider_id` and `model` (strings) are required and must name a model that is available now.
-- `reasoning_effort` and `speed` (strings, optional) must be empty for a provider model. For an external agent, a non-empty `reasoning_effort` must be one that model offers. `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
+- `reasoning_effort` and `speed` (strings, optional). A non-empty `reasoning_effort` must be one of that model's `reasoning_efforts` (`GET /v1/models`); for a provider model those are the levels its model list reported, sent as Chat Completions `reasoning_effort` or Responses `reasoning.effort`, and `""` sends none. `speed` must be empty for a provider model. For an external agent, `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
 - `target` (string, optional) applies only in a Bot chat: `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). Outside Bot chats it is ignored.
 - The body is at most 4096 bytes. Other fields are ignored.
 
@@ -821,7 +821,7 @@ Errors:
 - `400` `target must be "bot" or "task"`
 - `400` provider_id and model are required
 - `400` unknown or unavailable model
-- `400` reasoning_effort and speed currently require an external agent model
+- `400` speed currently requires an external agent model
 - `400` unsupported reasoning_effort for this model
 - `400` unsupported speed for this model
 - `400` Bot conversations run on a configured provider, not an external agent

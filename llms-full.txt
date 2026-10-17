@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.90.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.91.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -1934,6 +1934,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `description` (string) is built-in delegation guidance until the owner saves one. A stored description that is empty, or exactly `Your persistent local assistant.`, is filled with that guidance once, before any request. A save stores the trimmed description, including `""`, and a later empty save stays empty.
 - `main_session_id` (string) is the current main chat. The first read or write that needs it creates the chat.
 - `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the one model of every Bot chat (main chat, side chats, each channel kind's chat, including chats `/new` creates). Both `""` means the Settings default, then the first model Core can use. A Bot chat's own saved model is not used; `PUT /v1/sessions/{id}/settings` in any Bot chat sets this pair. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
+- `bot_reasoning_effort` and `task_reasoning_effort` (strings, always present) are the reasoning effort of the Bot model and of the task model. `""` is the model's default (no effort is sent). A task without a task model takes the Bot model with its effort. The first Core start after efforts were added copies the main chat's saved effort to an empty `bot_reasoning_effort` once, when that saved setting names the Bot model.
 - `task_provider_id` and `task_model` (strings, always present) choose the model for a new background task. Both `""` means the Bot model, then Core's default model resolution. A non-empty pair is pinned for every new task: the fallback chain is not used. A pair that names an external agent is ignored at task creation as if it were unset.
 - `system_prompt` (string) is the prompt Bot conversations receive: a fixed introduction, then ` Your name is <name>.` when the name is non-empty, then a space and the description when that is non-empty, then a fixed style section. Memory is not part of this string.
 - `chats` (array) is every Bot chat, oldest first. See Chats.
@@ -2074,6 +2075,8 @@ Response: `200`
   "task_model": "",
   "bot_provider_id": "",
   "bot_model": "",
+  "bot_reasoning_effort": "",
+  "task_reasoning_effort": "",
   "chats": [
     {
       "session_id": "2026-10-14T12-02-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b",
@@ -2118,6 +2121,7 @@ Request:
 - `name` (string, required). Trimmed. Empty or whitespace-only is rejected. The body is one JSON object of at most 16384 bytes.
 - `description` (string). Trimmed. Omitted is `""` and clears a description already saved. Send the current description back when a save should keep it.
 - `task_provider_id` and `task_model` (strings). Omit both to leave the task model unchanged. Send both as `""` to clear it. Send both non-empty to pin it. Any other combination is rejected, including one empty and one non-empty. The same rule applies to `bot_provider_id` and `bot_model`.
+- `bot_reasoning_effort` and `task_reasoning_effort` (strings, optional). Omitted keeps the effort while the model stays the same and clears it when the same body changes that model. `""` is the model's default. A non-empty value must be one of the model's `reasoning_efforts` (`GET /v1/models`) and needs that model set.
 - A non-empty provider id of `local-codex`, `local-grok`, `local-pi`, or `local-claude` is rejected. Other fields are ignored.
 
 Response: `200` the profile, same shape as `GET /v1/bot`, after the save and after the main chat exists.
@@ -2128,6 +2132,8 @@ Errors:
 - `400` task_provider_id and task_model must be set together
 - `400` bot_provider_id and bot_model must be set together
 - `400` unknown or unavailable model (a Bot model that is not available now)
+- `400` unsupported reasoning_effort for this model
+- `400` reasoning_effort needs a model
 - `400` Bot conversations run on a configured provider, not an external agent
 - `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat happens after a successful save.
 
@@ -4560,8 +4566,8 @@ Response: `200`
 - `provider_id` and `model` identify the row. `provider_name` is the provider's name, or its id when the name is empty. For an external agent it is `Codex (local)`, `Grok (local)`, `pi (local)` or `Claude (local)`. `name` is the display name, or `model` when none was stored.
 - `provider_host` is the hostname of the provider's base URL, lowercased, without port, path or credentials. Omitted when the URL has no host. External-agent rows omit it.
 - `limits.context_window` and `limits.max_output` are token counts. Either number is omitted when unknown, so `limits` may be `{}`. `limits_source` is `manual` (set on the provider), `provider` (from the last model fetch), `catalog` (a known model id) or `unknown`. External-agent rows send `limits` `{}` and `limits_source` `""`.
-- `images_supported` is the owner's image switch for that model. Absent means the owner has not set it. Core enforces this on send. `image_input` is that switch when it is set, otherwise what the provider's model list said. `reasoning` and `reasoning_levels` come from that list and are display only. All three are omitted when unknown.
-- `reasoning_efforts` is the effort values a request may send, with `default_reasoning_effort` when the agent has one. Provider rows omit them. External-agent rows include them when the agent reported any.
+- `images_supported` is the owner's image switch for that model. Absent means the owner has not set it. Core enforces this on send. `image_input` is that switch when it is set, otherwise what the provider's model list said. `reasoning` and `reasoning_levels` come from that list. All three are omitted when unknown.
+- `reasoning_efforts` is the effort values a request may send, with `default_reasoning_effort` when the agent has one. On a provider row it is `reasoning_levels`, with no `default_reasoning_effort` (unset effort sends none, the model's own default). External-agent rows include them when the agent reported any. Both are omitted when empty.
 - `service_tiers` is `[{id, name, description}]` and `default_service_tier` is one of those ids. Only Codex rows carry them, and only when the check reported tiers. `id` is the value to send as `speed` on a conversation.
 - Claude rows include `images_supported: true`.
 - `current` is a model id, with no provider. It is the configured connection's model when that connection has both a base URL and a model; otherwise the first active model of the first enabled provider; otherwise `""`. Saving providers or the Settings default keeps that connection aligned with the selected provider's first active model.
@@ -6774,7 +6780,7 @@ Request:
 
 - Message fields are [Message input](#message-input). `prompt` may be `""` when `attachments` is non-empty.
 - `provider_id` and `model` (strings, optional). Omit both to use this conversation's model, then the settings default, then the first available model. If either is sent, that pair is used as given. A conversation whose saved model is no longer available fails until another model is chosen.
-- `reasoning_effort` and `service_tier` (strings, optional) apply only when the model is Codex, Grok, pi or Claude. Empty means the model's default. `service_tier` is rejected for Grok, pi and Claude, and must be one Codex offers (`default` is accepted). A provider model rejects either field.
+- `reasoning_effort` and `service_tier` (strings, optional). Empty means the model's default. `service_tier` applies only to Codex: it is rejected for Grok, pi, Claude and provider models, and must be one Codex offers (`default` is accepted). For a provider model, a `reasoning_effort` not among its `reasoning_efforts` is dropped and the turn runs on the model's default.
 - `cwd` (string, optional) is the working directory for this turn. Empty uses the conversation's workspace.
 - `system_prompt` (string, optional) replaces the default style for a provider model. A blank value keeps the default. A Bot conversation ignores it. Codex, Grok, pi and Claude reject a non-empty value.
 - `context_settings` (object, optional) is rejected for Codex, Grok, pi and Claude. For a provider model, `context_window` is an integer from 4096 to 10000000. `output_reserve`, `keep_recent_tokens`, `summary_max_tokens` and `threshold_tokens` are optional integers; omitted or 0 uses 4096, 20000, 2048, and `context_window - output_reserve`. The summary must fit in the output reserve, recent messages must fit under the threshold, and the threshold must leave the output reserve inside the window.
@@ -6791,7 +6797,7 @@ Errors:
 - `400` the prompt, references, attachments or placements were rejected. Stable messages include `unknown reference type`, `at most 64 references`, `reference label too long`, `too many input placements`, `invalid or duplicated input marker`, `invalid reference placement`, `invalid image placement`, `invalid input placement type`, `A message can contain at most 20 images`, `Images in one message exceed the 40 MiB limit`, `Invalid attachment ID`, `Image attachment not found`, `The selected model does not support images; remove the images or choose another model`
 - `400` unknown or unconfigured model, or `missing endpoint or model`
 - `400` `This conversation's model setting (<model>) is no longer available. Choose another model.`
-- `400` `Model options currently require an external agent`
+- `400` `Response speed currently requires an external agent` (`service_tier` on a provider model)
 - `400` `context_window must be between 4096 and 10000000`, or `invalid context budgets: reserve output and leave room for summary plus recent messages`
 - `400` invalid project cwd, when `cwd` cannot be used
 - `400` `Bot conversations run on a configured provider, not an external agent`
@@ -8522,7 +8528,7 @@ Request:
 ```
 
 - `provider_id` and `model` (strings) are required and must name a model that is available now.
-- `reasoning_effort` and `speed` (strings, optional) must be empty for a provider model. For an external agent, a non-empty `reasoning_effort` must be one that model offers. `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
+- `reasoning_effort` and `speed` (strings, optional). A non-empty `reasoning_effort` must be one of that model's `reasoning_efforts` (`GET /v1/models`); for a provider model those are the levels its model list reported, sent as Chat Completions `reasoning_effort` or Responses `reasoning.effort`, and `""` sends none. `speed` must be empty for a provider model. For an external agent, `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
 - `target` (string, optional) applies only in a Bot chat: `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). Outside Bot chats it is ignored.
 - The body is at most 4096 bytes. Other fields are ignored.
 
@@ -8537,7 +8543,7 @@ Errors:
 - `400` `target must be "bot" or "task"`
 - `400` provider_id and model are required
 - `400` unknown or unavailable model
-- `400` reasoning_effort and speed currently require an external agent model
+- `400` speed currently requires an external agent model
 - `400` unsupported reasoning_effort for this model
 - `400` unsupported speed for this model
 - `400` Bot conversations run on a configured provider, not an external agent

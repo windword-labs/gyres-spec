@@ -15,6 +15,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `description` (string) is built-in delegation guidance until the owner saves one. A stored description that is empty, or exactly `Your persistent local assistant.`, is filled with that guidance once, before any request. A save stores the trimmed description, including `""`, and a later empty save stays empty.
 - `main_session_id` (string) is the current main chat. The first read or write that needs it creates the chat.
 - `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the one model of every Bot chat (main chat, side chats, each channel kind's chat, including chats `/new` creates). Both `""` means the Settings default, then the first model Core can use. A Bot chat's own saved model is not used; `PUT /v1/sessions/{id}/settings` in any Bot chat sets this pair. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
+- `bot_reasoning_effort` and `task_reasoning_effort` (strings, always present) are the reasoning effort of the Bot model and of the task model. `""` is the model's default (no effort is sent). A task without a task model takes the Bot model with its effort. The first Core start after efforts were added copies the main chat's saved effort to an empty `bot_reasoning_effort` once, when that saved setting names the Bot model.
 - `task_provider_id` and `task_model` (strings, always present) choose the model for a new background task. Both `""` means the Bot model, then Core's default model resolution. A non-empty pair is pinned for every new task: the fallback chain is not used. A pair that names an external agent is ignored at task creation as if it were unset.
 - `system_prompt` (string) is the prompt Bot conversations receive: a fixed introduction, then ` Your name is <name>.` when the name is non-empty, then a space and the description when that is non-empty, then a fixed style section. Memory is not part of this string.
 - `chats` (array) is every Bot chat, oldest first. See Chats.
@@ -155,6 +156,8 @@ Response: `200`
   "task_model": "",
   "bot_provider_id": "",
   "bot_model": "",
+  "bot_reasoning_effort": "",
+  "task_reasoning_effort": "",
   "chats": [
     {
       "session_id": "2026-10-14T12-02-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b",
@@ -199,6 +202,7 @@ Request:
 - `name` (string, required). Trimmed. Empty or whitespace-only is rejected. The body is one JSON object of at most 16384 bytes.
 - `description` (string). Trimmed. Omitted is `""` and clears a description already saved. Send the current description back when a save should keep it.
 - `task_provider_id` and `task_model` (strings). Omit both to leave the task model unchanged. Send both as `""` to clear it. Send both non-empty to pin it. Any other combination is rejected, including one empty and one non-empty. The same rule applies to `bot_provider_id` and `bot_model`.
+- `bot_reasoning_effort` and `task_reasoning_effort` (strings, optional). Omitted keeps the effort while the model stays the same and clears it when the same body changes that model. `""` is the model's default. A non-empty value must be one of the model's `reasoning_efforts` (`GET /v1/models`) and needs that model set.
 - A non-empty provider id of `local-codex`, `local-grok`, `local-pi`, or `local-claude` is rejected. Other fields are ignored.
 
 Response: `200` the profile, same shape as `GET /v1/bot`, after the save and after the main chat exists.
@@ -209,6 +213,8 @@ Errors:
 - `400` task_provider_id and task_model must be set together
 - `400` bot_provider_id and bot_model must be set together
 - `400` unknown or unavailable model (a Bot model that is not available now)
+- `400` unsupported reasoning_effort for this model
+- `400` reasoning_effort needs a model
 - `400` Bot conversations run on a configured provider, not an external agent
 - `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat happens after a successful save.
 
