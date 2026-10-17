@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.91.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.92.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -186,7 +186,7 @@ curl -sS -X PUT \
   http://127.0.0.1:15100/v1/sessions/2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd-ef0123456789/approval-mode
 ```
 
-`200` is `{"ok":true}`. When the stored override actually changes, waiting requests for this conversation expire and are not run under the new mode. Reason: `conversation approval mode changed; retry the operation`. Sending the mode already stored changes nothing. A child conversation cannot set its own mode (`409`, message `子任务权限跟随父对话，请在父对话调整`); change the parent. A request with `policy_session` uses that parent's mode.
+`200` is `{"ok":true}`. When the stored override actually changes, waiting requests for this conversation expire and are not run under the new mode. Reason: `conversation approval mode changed; retry the operation`. Sending the mode already stored changes nothing. A child conversation cannot set its own mode (`409`, message `子任务权限跟随父对话，请在父对话调整`); change the parent. A request with `policy_session` uses that parent's mode. It is a subtask's request (native or external-agent child): show it, and let it be answered, in the parent conversation too, or a parent waiting for that child stalls unseen.
 
 `ask` asks unless a grant covers the call. `edit` does the same and also allows `write` and `edit` inside the conversation's working directory or a workspace root. `allow` allows the attended call without asking. `once_only` is never covered by a mode or a grant. `PUT /v1/approval-settings` with `{"mode":"ask","unattended":"deny"}` replaces the global policy and expires every waiting request when the stored policy changes.
 
