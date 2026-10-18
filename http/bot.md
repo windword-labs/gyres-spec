@@ -64,6 +64,7 @@ Each chat:
 - `executor` (string) is present when a visible task runs on an external agent: `codex`, `grok`, `pi`, or `claude`.
 - `run_id` (string) is present once the run whose outcome is reported back exists.
 - `delivered` (bool) is present and true once that outcome was handed to the requesting chat.
+- `report` (bool) is present and true on a hidden task whose outcome is reported back to the requesting chat (every hidden task created since #1507).
 - `reply` (object) is present when the request arrived from a channel: `channel` (kind), `chat_id`, and `message_id`. Absent means the request came from the app.
 
 ## Memory
@@ -424,7 +425,7 @@ Events: `sessions.changed` and `bot.changed` on success.
 ### POST /v1/bot/tasks
 
 Auth: any key
-Effect: Creates a hidden background task, records it, and starts it. The task uses the Bot's task model when one is pinned, otherwise the Bot model, otherwise Core's default model resolution. The response is sent while `status` is still `queued`; the run then moves it to `running`. Creates the main chat first when it does not exist yet.
+Effect: Creates a hidden background task, records it, and starts it. The task uses the Bot's task model when one is pinned, otherwise the Bot model, otherwise Core's default model resolution. The response is sent while `status` is still `queued`; the run then moves it to `running`. Creates the main chat first when it does not exist yet. When it settles, its outcome is reported once as a Bot turn in `source_session_id` (or the current main chat when that chat is gone); `report: true` on the task marks this, and `delivered` is set once the report turn is admitted.
 
 Request:
 
