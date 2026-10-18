@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.93.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.94.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -5899,7 +5899,7 @@ A skill object:
 
 `GET /v1/skills` returns `{"skills":[...],"warnings":[...]}`. Both arrays are present. `warnings` lists discovery problems; a bad bundle is skipped and the others are still returned. Project and global skills come first, ordered by name then path. Plugin skills follow, grouped by plugin name. Built-ins follow those. A project skill hides a global skill of the same name. A name already present hides a plugin skill and a built-in of that name. The same name under two project directories is two entries.
 
-Built-in names are `web-search`, `widgets`, `hooks`, and `computer-use`. `computer-use` is left out when computer use is not available. A workspace or conversation list includes built-ins when Core has started browser support. The unscoped management list (`manage_scope=all` with no `session_id`, `project_id`, or `cwd`) includes built-ins whenever skills can be read from Core's home.
+Built-in names are `widgets`, `hooks`, and `computer-use`; `web-search` comes from the bundled `web-search` plugin (source `plugin:web-search`) while that plugin is enabled. `computer-use` is left out when computer use is not available. A workspace or conversation list includes built-ins when Core has started browser support. The unscoped management list (`manage_scope=all` with no `session_id`, `project_id`, or `cwd`) includes built-ins whenever skills can be read from Core's home.
 
 A skill whose frontmatter `requires` contains `library` is listed for a project that has a library, and in that unscoped management list. It is left out of every other list, including a conversation with no project.
 
