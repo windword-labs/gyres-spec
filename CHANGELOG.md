@@ -16,6 +16,15 @@ Each entry:
     - What changed (endpoint, field or event).
       Migration: what a client must do.
 
+## api_version 3 (Gyres 0.97.0)
+
+- Run stream event `claude_activity` is renamed `agent_activity` and is now
+  sent by Codex and Grok conversations too (their own subagents), with the
+  same fields. A Codex or Grok task leaves out what that agent does not report
+  (`tool_use_id`, and for Codex `subagent_type`).
+  Migration: handle `agent_activity` as you handled `claude_activity`; keep
+  accepting `claude_activity` for Cores before 0.97.0.
+
 ## api_version 2 (Gyres 0.89.0)
 
 - `GET`/`PUT /v1/bot`: `channel_provider_id` and `channel_model` are gone,

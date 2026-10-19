@@ -754,13 +754,13 @@ The conversation's goal was created, replaced, paused, completed, blocked, or st
 
 Refetch: `GET /v1/sessions/{id}/goal` if this frame was missed. Otherwise apply `goal` (that route returns `{ "goal": <this object> }`).
 
-### claude_activity
+### agent_activity
 
-Claude conversations only. What Claude is doing besides its main reply: the subagents and background shells it runs, and whether a model request is in flight. Each frame carries the whole current state and replaces the previous one. It is live only: nothing of it is stored in the transcript, and the run's last frame is an empty one.
+External-agent conversations (Claude, Codex, Grok; called `claude_activity` before api_version 3). What the agent is doing besides its main reply: its own subagents (and Claude's background shells), and whether a Claude model request is in flight. Each frame carries the whole current state and replaces the previous one. It is live only: nothing of it is stored in the transcript, and the run's last frame is an empty one.
 
 ```json
 {
-  "type": "claude_activity",
+  "type": "agent_activity",
   "requesting": false,
   "tasks": [
     {
@@ -785,9 +785,9 @@ Claude conversations only. What Claude is doing besides its main reply: the suba
 }
 ```
 
-- `requesting` is `true` while a model request is waiting for its first output.
+- `requesting` is `true` while a model request is waiting for its first output (Claude only; always `false` for Codex and Grok).
 - `tasks` is in start order. `kind` is `agent` (a subagent) or `shell` (a background shell); another value can appear for other kinds of background work.
-- `subagent_type`, `last_tool`, `tokens`, `tool_use_id` and `steps` are omitted when unknown or empty. `tool_use_id` is the `call.id` of the call that started the task.
+- `subagent_type`, `last_tool`, `tokens`, `tool_use_id` and `steps` are omitted when unknown or empty. `tool_use_id` is the `call.id` of the call that started the task (Claude only). A Codex task's `id` is its subagent thread and its `description` comes from the subagent's path (Codex reports no type or prompt); a Grok task's `id` is Grok's subagent ID, with Grok's `subagent_type` and `description`.
 - `started_at` is when Core first saw the task (UTC); show elapsed time from it.
 - `steps` are the subagent's latest few steps, oldest first: a tool call (`tool` plus a short `text` of its argument) or a message (`text` only, its first line).
 
