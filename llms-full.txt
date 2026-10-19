@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.97.1. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.97.2. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -6357,6 +6357,155 @@ Errors:
 - `404` Skill is not removable
 - `409` Skill changed; refresh the list and try again (this is also the result when `expected_digest` is empty)
 - `500` the file could not be removed
+
+Events: none.
+
+### GET /v1/skills/history
+
+Auth: admin
+Effect: Lists the saved versions of one global or project skill, newest first. Core keeps a version for every change to the skill's directory: before and after each write the Agent or the owner makes through Gyres, and, when a conversation's catalog is built or this endpoint is called, for any change made on disk by something else since the last version. Versions are stored outside the skill directory, so they survive a tool that deletes and copies the skill again. The latest 30 versions are kept per skill. Calling this endpoint first records a change on disk that has no version yet.
+
+Query:
+
+- `path` (string) is required: a global or project `SKILL.md` path as returned by `GET /v1/skills`, for every conversation or for an available project primary directory.
+
+Response: `200`
+
+```json
+{
+  "path": "/home/owner/.gyres/skills/release/SKILL.md",
+  "name": "release",
+  "editable": true,
+  "versions": [
+    { "id": 3, "at": "2026-10-20T08:00:00Z", "source": "external", "action": "found", "files": 2 },
+    { "id": 2, "at": "2026-10-19T08:00:00Z", "source": "chat", "action": "edit", "files": 2 },
+    { "id": 1, "at": "2026-10-18T08:00:00Z", "source": "external", "action": "found", "files": 2 }
+  ],
+  "notice": { "at": "2026-10-20T08:00:00Z", "local": 2, "external": 3 }
+}
+```
+
+- `name` is the skill's directory name.
+- `editable` is `false` for a skill directory linked from elsewhere; its history is kept but it cannot be rolled back.
+- Each version has an increasing `id`, the time `at`, its `source` (`chat` and `review` for the Agent in a conversation or in background review, `owner` for the owner through Gyres, `external` for a change Gyres did not write) and an `action` (`create`, `edit`, `install`, `rollback`, or `found` for an external change). `restored_from` is the version a rollback restored. `files` counts the files in the version. `partial` is `true` when some files were left out: hidden files and symbolic links are never included, and a version holds at most 200 files, 1 MiB per file and 8 MiB in total.
+- `notice` is set when an external change replaced a version written through Gyres: `local` is that version and `external` the one that replaced it. It is `null` otherwise. It is cleared by a rollback or by `POST /v1/skills/history/dismiss`.
+
+Errors:
+
+- `404` Skill has no history (the path is not a listed global or project skill)
+- `500` the history could not be read or written
+
+Events: none.
+
+### GET /v1/skills/history/notices
+
+Auth: admin
+Effect: Lists the skills with an open notice (see `GET /v1/skills/history`), so a client can mark them in its skill list without fetching every history.
+
+Response: `200`
+
+```json
+{
+  "notices": [
+    { "path": "/home/owner/.gyres/skills/release/SKILL.md", "name": "release", "notice": { "at": "2026-10-20T08:00:00Z", "local": 2, "external": 3 } }
+  ]
+}
+```
+
+- `path` is the skill directory's real location joined with `SKILL.md`, which is what `GET /v1/skills` returns for a skill that is not linked from elsewhere.
+
+Errors: none beyond authentication.
+
+Events: none.
+
+### GET /v1/skills/history/diff
+
+Auth: admin
+Effect: Returns a unified diff between two versions of one skill.
+
+Query:
+
+- `path` (string) as in `GET /v1/skills/history`.
+- `from` (integer) is the older version id, or `0` for an empty skill.
+- `to` (integer) is the newer version id.
+
+Response: `200`
+
+```json
+{
+  "patch": "--- a/SKILL.md\n+++ b/SKILL.md\n@@ -4,1 +4,2 @@\n 1. run tests\n+2. publish\n",
+  "truncated": false
+}
+```
+
+- `patch` lists changed files in path order; a file that is not UTF-8 text appears as `Binary file <path> changed`. An empty string means the versions are the same.
+- `truncated` is `true` when the diff was cut at 512 KiB.
+
+Errors:
+
+- `400` from and to must be version ids (from 0 for an empty bundle)
+- `404` Skill has no history
+- `404` version `<id>` not found, or a stored copy is missing or damaged
+
+Events: none.
+
+### POST /v1/skills/history/rollback
+
+Auth: admin
+Effect: Makes one saved version the skill's content again. Its files are written back with their saved permissions, and files of the current version that the restored one does not have are removed (not when the restored version is `partial`). Files that no version holds, such as hidden files (the Agent's marker file) or files over the limits, are left alone. The rollback is always recorded as a new version, even when it restores content an earlier version already had (`source` `owner`, `action` `rollback`); no version is deleted. It clears the notice. Restoring the version named in `notice.local` re-applies the change an external update replaced.
+
+Request:
+
+```json
+{
+  "path": "/home/owner/.gyres/skills/release/SKILL.md",
+  "version": 2,
+  "expected_head": 3
+}
+```
+
+- The body is one JSON object of at most 8192 bytes and may contain only these fields.
+- `version` (integer) is the version to restore.
+- `expected_head` (integer) must equal the newest version id, after any change on disk is recorded; otherwise nothing is written.
+
+Response: `200`
+
+```json
+{ "history": { "path": "...", "name": "release", "editable": true, "versions": [], "notice": null }, "context_reload_required": true }
+```
+
+- `history` is the skill's history after the rollback, shaped as in `GET /v1/skills/history`.
+- `context_reload_required` is always `true`: conversations that already have a catalog read the skill again only after their context is built again; a skill body is read from disk whenever the Agent reads it.
+
+Errors:
+
+- `400` path, version and expected_head are required
+- `400` version `<id>` not found, this version is already the current one, or a stored copy is missing or damaged
+- `400` restored version `<id>`, but could not remove `<files>`: the other files were restored and the result is recorded as a version
+- `404` Skill has no history
+- `409` the skill changed; refresh its history and try again
+- `409` this skill is linked from outside the skills directory; it is managed by the owner
+
+Events: none.
+
+### POST /v1/skills/history/dismiss
+
+Auth: admin
+Effect: Clears a skill's notice without changing its files.
+
+Request:
+
+```json
+{ "path": "/home/owner/.gyres/skills/release/SKILL.md" }
+```
+
+Response: `200`, the history as in `GET /v1/skills/history`, with `notice` `null`.
+
+Errors:
+
+- `400` path is required
+- `404` Skill has no history
+- `500` the history could not be written
 
 Events: none.
 
