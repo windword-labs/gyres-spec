@@ -33,7 +33,7 @@ An error with no top-level `code` has `error` and `failure` only. `failure.http_
 
 Seven directories move with the data location, in this order: `sessions`, `workspaces`, `schedules`, `tasks`, `bot`, `code`, `projects`. Everything else stays in the home directory.
 
-Free space has two levels. `low` means free space is below the larger of 2 GiB and 5% of the volume. `critical` means free space is below 512 MiB. Leaving `low` takes 256 MiB above its line; leaving `critical` takes 128 MiB above 512 MiB. A `low` or `critical` level does not change `mode` and does not by itself reject a request.
+Free space has two levels. `low` means free space is below the larger of 2 GiB and the smaller of 5% of the volume and 20 GiB. `critical` means free space is below 512 MiB. Leaving `low` takes 256 MiB above its line; leaving `critical` takes 128 MiB above 512 MiB. A `low` or `critical` level does not change `mode` and does not by itself reject a request.
 
 `running` entries, where a route returns them, use `kind` and `id`. `title` is omitted when empty. The array is not ordered.
 
@@ -363,6 +363,52 @@ Errors:
 Each of these is `error` and `failure` only.
 
 Events: none.
+
+### GET /v1/storage/space-warning
+
+Auth: admin
+Effect: Reports whether low disk space warnings are turned off.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{ "quiet_low": false }
+```
+
+- `quiet_low` true means clients should not show the `low` level. `critical` is always shown. The value also rides on the `ready` event's `storage_space`.
+
+Errors: none.
+
+Events: none.
+
+### PUT /v1/storage/space-warning
+
+Auth: admin
+Effect: Saves the low disk space warning switch. The response is the same document as `GET /v1/storage/space-warning`.
+
+Request:
+
+```json
+{ "quiet_low": true }
+```
+
+- `quiet_low` defaults to false when omitted.
+- Unknown fields are rejected. The body is at most 128 KiB.
+
+Response: `200`
+
+The `GET /v1/storage/space-warning` document, after the save.
+
+Errors:
+
+- `400` `invalid settings request`. Invalid JSON, unknown fields, or a body over 128 KiB.
+- `500` the setting could not be saved.
+
+Each of these is `error` and `failure` only.
+
+Events: none. Connected clients see the new value on their next `ready`.
 
 ### GET /v1/archive-cleanup
 

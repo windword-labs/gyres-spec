@@ -68,7 +68,7 @@ Sent once when the stream opens, before any other frame.
 
 - `version` is this Core's build version. Omitted when empty. Compare it with the previous `ready` to notice an update.
 - `instance_id` is the stable id of this Core, the same value as `GET /v1/identity`. 32 hexadecimal characters. Omitted when Core has none.
-- `storage_space` is the current free-space level of the data volume and the home volume. Each of `data` and `home` is `ok`, `low`, or `critical`. Omitted before the first check.
+- `storage_space` is the current free-space level of the data volume and the home volume. Each of `data` and `home` is `ok`, `low`, or `critical`. `quiet_low: true` (omitted when false) means the owner turned off low-space warnings: show only `critical`. Omitted before the first check.
 - `publishes` lists optional types this Core sends. Stop polling for a type only when it is listed. Older Cores omit `publishes`.
 
 Refetch: nothing yet. Use `version`, `instance_id`, and `storage_space` as the baseline.
