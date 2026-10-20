@@ -12,7 +12,7 @@ The Settings default is one provider and that provider's first active model. `GE
 
 `reasoning_effort` and `speed` are empty on this default. `speed` elsewhere is a service-tier id.
 
-External agents use the provider ids `local-codex`, `local-grok`, `local-pi` and `local-claude`. They are not providers. The default model, the fallback chain and `POST /v1/complete` refuse them.
+External agents use the provider ids `local-codex`, `local-grok`, `local-pi`, `local-claude` and `local-cursor`. They are not providers. The default model, the fallback chain and `POST /v1/complete` refuse them.
 
 ### GET /v1/chat-defaults
 

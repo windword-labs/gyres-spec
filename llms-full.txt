@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.97.6. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.97.7. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -799,9 +799,9 @@ That body is the authoritative transcript. `session.run_finished` on `GET /v1/ev
 
 # External agents
 
-External agents are Codex, Grok, pi and Claude Code installed on the computer that runs Core. A conversation can be handed to one of them. These routes save that setup, report whether the program is installed and signed in, report usage for Codex, Grok and Claude, and for Codex, Grok and Claude Code attach a session that was started in a terminal.
+External agents are Codex, Grok, pi, Claude Code, Cursor and DeepSeek Harness (dsh) installed on the computer that runs Core. A conversation can be handed to one of them. These routes save that setup, report whether the program is installed and signed in, report usage for Codex, Grok and Claude, and for Codex, Grok and Claude Code attach a session that was started in a terminal.
 
-The path values are `codex`, `grok`, `pi` and `claude`. Settings and status are Core-wide, one object per agent. Usage splits into the conversation's own totals and the account's quota.
+The path values are `codex`, `grok`, `pi`, `claude`, `cursor` and `dsh`. Settings and status are Core-wide, one object per agent. Usage splits into the conversation's own totals and the account's quota.
 
 An error from these handlers is `application/json`:
 
@@ -814,11 +814,11 @@ An error from these handlers is `application/json`:
 Settings and status require an administrator key. Their responses, including errors, send `Cache-Control: no-store`. `PUT` replaces the whole settings object: a missing boolean is saved as false, a missing string as empty, and then the rules below run. The body is at most 8192 bytes. A body that is not JSON, has an unknown field, or is larger than that is rejected.
 
 - `enabled`: the agent can run only when true.
-- `executable`: empty, or the bare command name (`codex`, `grok`, `pi` or `claude`), means automatic, and is saved as `""`. Core then uses the newest install it finds. Any other value must be an absolute path.
+- `executable`: empty, or the bare command name (`codex`, `grok`, `pi`, `claude`, `cursor-agent` or `dsh`), means automatic, and is saved as `""`. Core then uses the newest install it finds. Any other value must be an absolute path.
 - `approval_scope`: `agent` (one approval covers every operation of that agent) or `operation` (each operation type is remembered separately). Anything else, including empty, is saved as `agent`.
 - `allow_members`: when false (the default), an ordinary access key cannot run this agent, and cannot list or attach its terminal sessions.
 
-`allow_unattended`, on Grok and Claude only, defaults to false. While it is false, a scheduled task or a channel message cannot use that agent.
+`allow_unattended`, on Grok, Claude, Cursor and dsh only, defaults to false. While it is false, a scheduled task or a channel message cannot use that agent.
 
 A status response is the last detection, returned immediately, plus:
 
@@ -1435,6 +1435,235 @@ Errors:
 
 Events: none.
 
+### GET /v1/cursor/settings
+
+Auth: admin
+Effect: Returns the Cursor settings. When none have been saved, the defaults below.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "enabled": false,
+  "executable": "",
+  "approval_scope": "agent",
+  "allow_unattended": false,
+  "allow_members": false
+}
+```
+
+Errors:
+
+- `500` the saved settings cannot be read
+
+Events: none.
+
+### PUT /v1/cursor/settings
+
+Auth: admin
+Effect: Replaces the Cursor settings and starts a detection. The saved object is returned. An empty object is valid and saves Cursor disabled, with automatic executable and `approval_scope` `agent`.
+
+Request:
+
+```json
+{
+  "enabled": true,
+  "executable": "",
+  "approval_scope": "agent",
+  "allow_unattended": false,
+  "allow_members": false
+}
+```
+
+Response: `200` the saved object, in the same shape.
+
+`executable` is `""` when the request asked for automatic (also for the bare name `cursor-agent`). `approval_scope` is `agent` unless the request sent `operation`.
+
+Errors:
+
+- `400` invalid Cursor settings
+- `400` use automatic or an absolute cursor-agent executable path
+- `500` the settings could not be saved
+
+Events: none.
+
+### GET /v1/cursor/status
+
+Auth: admin
+Effect: Returns the last Cursor detection without waiting. Starts one only when Cursor is enabled and no detection has finished. Sign-in comes from `cursor-agent status`; the models from Cursor's ACP model option.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "path": "/Users/me/.local/bin/cursor-agent",
+  "version": "2026.10.16-e3cb207",
+  "installed": true,
+  "logged_in": true,
+  "models": [
+    {"id": "gpt-5.5", "name": "gpt-5.5", "value": "gpt-5.5[context=272k,reasoning=medium,fast=false]"}
+  ],
+  "checked_at": "2026-10-20T12:00:00Z",
+  "checking": false,
+  "step": "",
+  "executable": {"path": "/Users/me/.local/bin/cursor-agent", "version": "2026.10.16-e3cb207", "auto": true},
+  "executables": [{"path": "/Users/me/.local/bin/cursor-agent", "version": "2026.10.16-e3cb207", "source": "PATH"}]
+}
+```
+
+- `id` is the model's base name, used as the chat model; `value` is Cursor's own value for it, carrying the parameters (effort, context, fast) Cursor last used for that model. There are no reasoning efforts in Gyres.
+- A missing program sets `error` to `Cursor executable was not found`.
+
+Errors:
+
+- `500` the saved settings cannot be read
+- `500` the status could not be encoded
+
+Events: none.
+
+### POST /v1/cursor/status
+
+Auth: admin
+Effect: Starts a Cursor detection, unless one is already running, and returns the current snapshot immediately.
+
+Request: no body.
+
+Response: `200` the same object as `GET /v1/cursor/status`.
+
+Errors:
+
+- `500` the saved settings cannot be read
+- `500` the status could not be encoded
+
+Events: none.
+
+### GET /v1/dsh/settings
+
+Auth: admin
+Effect: Returns the dsh (DeepSeek Harness) settings. When none have been saved, the defaults below.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "enabled": false,
+  "executable": "",
+  "sandbox": "workspace-write",
+  "provider": "",
+  "approval_scope": "agent",
+  "allow_unattended": false,
+  "allow_members": false
+}
+```
+
+- `executable` automatic uses the newest installed `dsh`, else `npx` running the release Core pins. An absolute path may name a `dsh` install or `npx`.
+- `sandbox` is dsh's permission mode: `workspace-write` (the default), `read-only` or `danger-full-access`. An empty value is read and saved as `workspace-write`.
+- `provider` is the id of a Gyres provider dsh uses instead of its own model configuration, or empty for dsh's own.
+
+Errors:
+
+- `500` the saved settings cannot be read
+
+Events: none.
+
+### PUT /v1/dsh/settings
+
+Auth: admin
+Effect: Replaces the dsh settings and starts a detection. The saved object is returned.
+
+Request:
+
+```json
+{
+  "enabled": true,
+  "executable": "",
+  "sandbox": "workspace-write",
+  "provider": "",
+  "approval_scope": "agent",
+  "allow_unattended": false,
+  "allow_members": false
+}
+```
+
+- See `GET /v1/dsh/settings` and the shared settings rules. A `provider` that does not exist or has no active models is saved; detection then reports the error.
+
+Response: `200` the saved object, as for `GET /v1/dsh/settings`.
+
+Errors:
+
+- `400` invalid dsh settings
+- `400` use automatic or an absolute dsh executable path
+- `400` invalid dsh sandbox
+- `500` the settings could not be saved
+
+Events: none.
+
+### GET /v1/dsh/status
+
+Auth: admin
+Effect: Returns the last dsh detection without waiting. Starts one only when dsh is enabled and no detection has finished.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "path": "/Users/me/.nvm/versions/node/v24.21.0/bin/npx",
+  "version": "0.2.1-rc.2",
+  "installed": true,
+  "logged_in": true,
+  "models": [
+    {
+      "id": "deepseek-official/deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "value": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+      "reasoning_efforts": ["high", "max"]
+    }
+  ],
+  "checked_at": "2026-10-20T12:00:00Z",
+  "checking": false,
+  "step": "",
+  "executable": {"path": "/Users/me/.nvm/versions/node/v24.21.0/bin/npx", "version": "0.2.1-rc.2", "auto": true},
+  "executables": [{"path": "/Users/me/.nvm/versions/node/v24.21.0/bin/npx", "version": "0.2.1-rc.2", "source": "npx @deepseek-ai/dsh"}]
+}
+```
+
+- Before the first detection, `installed` and `logged_in` are false, `models` is `[]`, `checked_at` is `null`, and `path`, `version`, `provider` and `error` are omitted.
+- `logged_in` is true when dsh offers at least one model. dsh has no sign-in status: a missing API key fails the first request, not the detection.
+- `provider` repeats the settings' Gyres provider the detection used; omitted for dsh's own configuration.
+- On a model, `id` is `<route>/<model>` and is the model a conversation uses; `value` is dsh's own option value; `reasoning_efforts` is omitted when the model has none.
+- A missing program sets `error` and `installed` false. A Node.js older than 22.19 sets `installed` true and `error`.
+
+Errors:
+
+- `500` the saved settings cannot be read
+- `500` the status could not be encoded
+
+Events: none.
+
+### POST /v1/dsh/status
+
+Auth: admin
+Effect: Starts a dsh detection, unless one is already running, and returns the current snapshot immediately. Detection starts dsh, opens a session in a temporary directory to read the model option, closes it and removes the files dsh kept for that session.
+
+Request: no body.
+
+Response: `200` the same object as `GET /v1/dsh/status`, with `checking` true while the new detection runs.
+
+Errors:
+
+- `500` the saved settings cannot be read
+- `500` the status could not be encoded
+
+Events: none.
+
 ### GET /v1/sessions/{id}/agent-usage
 
 Auth: any key
@@ -1944,7 +2173,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 
 A session id is UTC time `YYYY-MM-DDTHH-MM-SS`, then `_`, then a UUID. Example: `2026-10-14T12-02-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b`.
 
-External-agent provider ids, refused on `PUT /v1/bot`, are `local-codex`, `local-grok`, `local-pi`, and `local-claude`.
+External-agent provider ids, refused on `PUT /v1/bot`, are `local-codex`, `local-grok`, `local-pi`, `local-claude`, and `local-cursor`.
 
 ## Chats
 
@@ -1959,7 +2188,7 @@ Each chat:
 - `channel` (string) is present for a chat created for a kind (`feishu` or `discord`). It stays after `/new` points the kind at a newer chat.
 - `ended` (string, UTC `YYYY-MM-DDTHH:MM:SSZ`) is present after `/new` moved the main-chat pointer or the kind's binding off this chat. The chat stays listed and usable.
 - `running` (bool) is true while a live turn holds the chat, including while that turn is `paused` or `pausing`.
-- `run_state` (string) while a live turn holds the chat is `running`, `pausing`, `paused`, or `waiting_children` (`running` that is waiting on child runs). When nothing is live but a task is still pending, it is that task's state: `running`, `paused`, `interrupted`, or `blocked` (`blocked` also when the pending task is marked blocked). Otherwise `idle`.
+- `run_state` (string) while a live turn holds the chat is `running`, `pausing`, `paused`, or `waiting_children` (`running` that is waiting on child runs). When nothing is live but a task is still pending, it is the pending task's state as [`GET /v1/sessions/{id}/run-state`](runs.md#get-v1sessionsidrun-state) derives it: `paused`, `interrupted`, or `blocked`. Otherwise `idle`.
 
 `settings` is never included. The profile's `chats` always include `running` and `run_state`. `POST /v1/bot/chats` without `from` returns the chat without those two fields.
 
@@ -1980,7 +2209,7 @@ Each chat:
 - `created` and `updated` (strings, UTC `YYYY-MM-DDTHH:MM:SSZ`).
 - `visible` (bool) is present and true when the task runs in an ordinary conversation the owner can open. `POST /v1/bot/tasks` does not set it. Those tasks are not created by this route.
 - `adopted` (bool) is present and true when the Bot sent into an existing conversation it did not open. `prompt` is then `""`.
-- `executor` (string) is present when a visible task runs on an external agent: `codex`, `grok`, `pi`, or `claude`.
+- `executor` (string) is present when a visible task runs on an external agent: `codex`, `grok`, `pi`, `claude`, or `cursor`.
 - `run_id` (string) is present once the run whose outcome is reported back exists.
 - `delivered` (bool) is present and true once that outcome was handed to the requesting chat.
 - `report` (bool) is present and true on a hidden task whose outcome is reported back to the requesting chat (every hidden task created since #1507).
@@ -2123,7 +2352,7 @@ Request:
 - `description` (string). Trimmed. Omitted is `""` and clears a description already saved. Send the current description back when a save should keep it.
 - `task_provider_id` and `task_model` (strings). Omit both to leave the task model unchanged. Send both as `""` to clear it. Send both non-empty to pin it. Any other combination is rejected, including one empty and one non-empty. The same rule applies to `bot_provider_id` and `bot_model`.
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, optional). Omitted keeps the effort while the model stays the same and clears it when the same body changes that model. `""` is the model's default. A non-empty value must be one of the model's `reasoning_efforts` (`GET /v1/models`) and needs that model set.
-- A non-empty provider id of `local-codex`, `local-grok`, `local-pi`, or `local-claude` is rejected. Other fields are ignored.
+- A non-empty provider id of `local-codex`, `local-grok`, `local-pi`, `local-claude`, or `local-cursor` is rejected. Other fields are ignored.
 
 Response: `200` the profile, same shape as `GET /v1/bot`, after the save and after the main chat exists.
 
@@ -2885,7 +3114,7 @@ When the file is missing, `exists` is false, `error` is `""`, `handlers` is `[]`
 - `max_continuations` is an integer from 0 to 5. When the file omits it, the value is 2.
 - Handler fields match the plugin `handlers` above, except `id` is not prefixed and a `./` command is left as written. `env` values are `""`.
 - `event` is one of `RunStart`, `RunEnd`, `BeforePrompt`, `BeforeModel`, `AfterModel`, `ModelError`, `BeforeTool`, `AfterTool`, `BeforeCompact`, `AfterCompact`, `BeforeFinish`, `ApprovalRequested`, `ApprovalResolved`, `RunPaused`, `RunResumed`, `BeforeSystemPrompt`, `RunSettled`. `Tool` is not valid in this file.
-- `executor`, only on `RunSettled`, is `core`, `codex`, `grok`, `pi` or `claude`.
+- `executor`, only on `RunSettled`, is `core`, `codex`, `grok`, `pi`, `claude` or `cursor`.
 
 Errors: none.
 
@@ -4313,7 +4542,7 @@ The Settings default is one provider and that provider's first active model. `GE
 
 `reasoning_effort` and `speed` are empty on this default. `speed` elsewhere is a service-tier id.
 
-External agents use the provider ids `local-codex`, `local-grok`, `local-pi` and `local-claude`. They are not providers. The default model, the fallback chain and `POST /v1/complete` refuse them.
+External agents use the provider ids `local-codex`, `local-grok`, `local-pi`, `local-claude` and `local-cursor`. They are not providers. The default model, the fallback chain and `POST /v1/complete` refuse them.
 
 ### GET /v1/chat-defaults
 
@@ -6541,7 +6770,60 @@ Core-wide notifications (`GET /v1/events`) and run-stream frames (`GET /v1/sessi
 - `interrupted` — the task stopped and can be continued. A turn that finished with messages still queued is `interrupted`, with `reason` `追加消息已保存，请继续处理`.
 - `blocked` — the task cannot continue until the owner acts. `reason` says why.
 
-`reason` is that explanation, or `""`.
+`reason` is that explanation, or `""`. `reason_code` (Gyres 0.98+) is its stable
+machine code; show text localised from the code and fall back to `reason` for
+a code you do not know.
+
+The state is derived from the conversation's operation log (what recovery
+would do now) plus the live run and the owner's pause; it reads the same after
+a reconnect or a Core restart as the stream showed before.
+
+### Reason codes
+
+One code per decision; a code never changes meaning. `state` is where the
+code appears; `next` is the recovery action (`GET …/run-state`).
+
+| Code | State | Meaning |
+|---|---|---|
+| `tool_unknown` | blocked | A call that must not run twice was started and its result was not saved. Check what it did, then continue. |
+| `prompt_missing` | blocked | The task's prompt was edited or deleted. |
+| `step_budget` | blocked | The step used its attempts across retries and restarts. |
+| `local_agent` | blocked | An external agent's dispatch outcome is unknown: after a crash a Cursor task, a dsh task, or one whose history was unreadable or whose follow-up was in flight, waits for the owner's Continue. |
+| `agent_approval` | blocked | An external agent was waiting for an approval when Core stopped. |
+| `op_mismatch` | blocked | The log's open operation is not this task's. |
+| `log_corrupt` | blocked | The operation log is invalid or unreadable. |
+| `hook_unknown` | blocked | A hook's outcome is unknown. |
+| `key_revoked` | blocked | The key that created the task was revoked. |
+| `peer_question` | blocked | A peer's question is not continued after a restart. |
+| `start_failed` | blocked | The run could not start (configuration, storage). |
+| `resume_failed` | blocked | The recovered run could not start. |
+| `internal_error` | blocked | The run stopped on an internal error. |
+| `child_failed` | blocked | A child task could not be resumed. |
+| `schedule_failed` | blocked | A scheduled run could not be resumed. |
+| `external_blocked` | blocked | An external agent's run stopped for review. |
+| `storage_failed` | blocked | Task storage failed a write; nothing advances. |
+| `tool_changed` | blocked | After a restart, a tool with an unfinished call is gone, or its replay policy or input schema differs from the interrupted run's (`context.jsonl`). Other context changes resume. Continue proceeds. |
+| `unspecified` | blocked | A task blocked before reason codes existed. |
+| `paused` | paused | The owner paused the run. |
+| `storage_recovered` | paused | Storage failed and recovered; continue by hand. |
+| `auto_resume_off` | interrupted | Automatic recovery is off; continue by hand. |
+| `queued_pending` | interrupted | The reply is saved and queued messages wait. |
+| `resume_step` | interrupted | Recovery continues at the saved step. |
+| `resume_calls` | interrupted | Recovery continues; started calls without a result are run again or marked interrupted by their tool's policy. |
+| `replay_safe` | interrupted | Recovery runs again calls that are safe to repeat. |
+| `interrupted_calls` | interrupted | Started calls that must not repeat get an interrupted result. |
+| `queued_delivered` | interrupted | A saved reply is followed by queued messages, which run. |
+| `child_redelivered` | interrupted | A saved reply is followed by child results not yet delivered. |
+| `planned_restart` | interrupted | After a planned restart or update; no attempt is charged. |
+| `manual_continue` | (record only) | The owner pressed Continue. |
+| `parent_resume` | (record only) | A child resumed by its parent after a restart. |
+| `settled`, `abort_settled`, `output_truncated`, `log_missing` | interrupted | The log already settles the task; nothing runs. |
+| `stopped`, `parent_finished`, `conversation_gone`, `lane_closed`, `schedule_cancelled` | (settled receipts) | Why a task was cancelled. |
+
+`operation_resumed` records carry the resume code (`code`); claim settle
+records (`<data>/tasks/claims.jsonl`) carry `claim_started`,
+`claim_finished`, `claim_accepted`, `claim_released`, `claim_uncertain` or
+`claim_superseded` in `reason`.
 
 ## Goal
 
@@ -6615,7 +6897,7 @@ A wake object:
 - `image_count` (number) is present only when the message has images.
 - `delivering` (true) is present only while this message is being handed to the live turn. It cannot be deleted or reordered then.
 - `held` (true) and `held_until` (UTC, to the second) are present only while an edit hold is active. See `hold`.
-- `executor` is `native` (Gyres), `codex`, `grok`, `pi` or `claude`.
+- `executor` is `native` (Gyres), `codex`, `grok`, `pi`, `claude` or `cursor`.
 - `actions.edit` and `actions.front` are true. `actions.insert` and `actions.send_now` are true only while a turn is live (not while it is still preparing). For Grok, `insert` is true only when that turn can take text immediately.
 - `insert_note` is `""`, or `grok_timing_not_guaranteed` for Grok: Grok decides when inserted text is used.
 
@@ -6694,10 +6976,26 @@ Request: no body.
 Response: `200`
 
 ```json
-{"state":"running","reason":""}
+{"state":"blocked","reason":"write 的执行结果未保存……","reason_code":"tool_unknown",
+ "phase":"tools","op":"task_…","step":1,"next":"block",
+ "calls":[{"id":"call_1","name":"write","status":"started"}]}
 ```
 
 `state` and `reason` are [Run state](#run-state). `reason` is always present.
+Since Gyres 0.98 (additions, all optional):
+
+- `reason_code` — a [reason code](#reason-codes).
+- `phase`, `op`, `step` — where the open operation is (`accepted`,
+  `between`, `preparing`, `step_open`, `tools`, `final`, `aborting`,
+  `external`), its task id and step; only while a task is pending.
+- `next` — what recovery would do now when no run is live: `resume`,
+  `block`, `wait`, `finish` or `close`.
+- `waiting` — what a live run waits for: `approval`, `question` or `children`.
+- `calls` — the open step's calls without a saved result: `status`
+  `unstarted` (never started) or `started` (started, result not saved), and
+  `next` (`execute`, `cancel`, `keep`) when no run is live and it is known before the run resumes.
+- `queued`, `children` — queued messages not yet in the transcript, child
+  results not yet delivered.
 
 Errors:
 
@@ -6848,7 +7146,7 @@ Response: `200`
 - `delivered` is true after the parent has been given the outcome.
 - `outcome` is present once delivered, and is the recorded result state (`completed`, `failed`, `cancelled`, or another task state).
 - `cwd` is present only when the child's working directory differs from the parent's.
-- `state` while the child runs is `running`, `pausing` or `paused`, otherwise the task state (`interrupted`, `blocked`, `completed`, `failed`, `cancelled`). A child whose start was never recorded is `failed` with `reason` `子任务启动记录不完整`. After delivery, `state` is `outcome`, or `completed` when no outcome was stored, and `reason` may be `已交付；后续执行见子会话`.
+- `state` while the child runs is `running`, `pausing`, `paused` or `waiting_children`; while its task is pending, the child conversation's [run state](#get-v1sessionsidrun-state) (`interrupted`, `paused`, `blocked`), with `reason_code`; otherwise the task state (`completed`, `failed`, `cancelled`). A child whose start was never recorded is `failed` with `reason` `子任务启动记录不完整`. After delivery, `state` is `outcome`, or `completed` when no outcome was stored, and `reason` may be `已交付；后续执行见子会话`.
 - `reason` is present when the task has one.
 - `result` is present once the child has finished and is not still running. It is the child's assistant text, cut at 16000 characters with a trailing `\n[Result truncated; use session_search with child session ID for full history.]`, plus the task error when there is one. After delivery it is the summary stored at delivery.
 - `parent_session` is the parent's conversation id, or `""` when this conversation is not a child.
@@ -7365,7 +7663,7 @@ A plan is one JSON object. Create and update send the fields below; a saved plan
 - `mode` (string, required): `standalone` or `followup`.
   - `standalone` starts a new conversation for each execution. Set `project_id` to bind a project, or omit it and the executions share one scratch directory. `session_id` must be omitted. The saved plan includes `workspace_session_id` (`schedule-` plus 32 hex characters), the id of that binding. Replacing the plan with the same `project_id` keeps the binding; a different `project_id` allocates a new one.
   - `followup` continues one conversation. `session_id` is required and must name a conversation that exists and whose workspace is available. `project_id` must be omitted; the conversation's project is used. Once that conversation has a saved model, a run uses that model. Until then it uses `provider_id` and `model`. While that conversation is busy the result stays `queued` and the conversation is not interrupted.
-- `provider_id` and `model` (strings, optional) are stored as sent. Both empty: each run uses the current default model. A `provider_id` with an empty `model` uses that provider's first active model. A `model` with an empty `provider_id` searches enabled providers. Both set must name an enabled provider's active model. Saving is rejected when that resolution fails. `local-claude` and `local-grok` are accepted only while that agent's unattended use is on. `local-codex` and `local-pi` are rejected.
+- `provider_id` and `model` (strings, optional) are stored as sent. Both empty: each run uses the current default model. A `provider_id` with an empty `model` uses that provider's first active model. A `model` with an empty `provider_id` searches enabled providers. Both set must name an enabled provider's active model. Saving is rejected when that resolution fails. `local-claude`, `local-grok` and `local-cursor` are accepted only while that agent's unattended use is on. `local-codex` and `local-pi` are rejected.
 - `timing` (object, required). `kind` is `once`, `interval`, `daily` or `weekly`.
   - `once`: `at` (timestamp) is required and must be in the future.
   - `interval`: `seconds` (int) is required, from 60 through 31536000. The gap is measured from the time an execution finishes, so a run that overruns does not produce extra runs.
@@ -7897,7 +8195,7 @@ Timestamps written by these routes (`created`, `modified`, `pinned_at`, `archive
 - `pausing` while a pause was asked and work is still inside the run.
 - `paused` while the slot is paused and that work has left.
 - `waiting_children` while the slot says running and is waiting on children.
-- Otherwise, if a task receipt is still pending: `blocked` when the receipt store is blocked, else the receipt's `running`, `paused`, `interrupted`, or `blocked`.
+- Otherwise, if a task is still pending: `blocked` when the receipt store is blocked, when the task is marked blocked, or when its operation log says recovery would block it (for example a started call whose result was not saved); `paused` when it is paused; else `interrupted` (`running` only for a moment while a run starts or ends). This is the same state as [`GET /v1/sessions/{id}/run-state`](runs.md#get-v1sessionsidrun-state), which also gives the reason code.
 - `idle` when none of that applies.
 
 A list row can have `running: true` and `run_state: "paused"`. A leftover receipt can have `running: false` and `run_state` `interrupted`, `paused`, or `blocked`.
@@ -7932,7 +8230,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 - A context record has `metadata.contextUpdateKey` of `workspace_environment`, `current_date`, `bot_memory`, or `workspace_roots_status`.
 - `title` is omitted when no custom title is stored. Clients then show `first_message`.
 - `pinned_at` is omitted when the conversation is not pinned. Pinning again keeps the original time.
-- `model` is `{"provider_id","model"}` of the conversation's saved `settings` (`GET /v1/sessions/{id}/settings`), without reasoning effort or speed. It is omitted when no model is saved; a turn then uses the Settings default. An external-agent conversation carries the agent's provider id (`local-codex`, `local-grok`, `local-pi`, `local-claude`).
+- `model` is `{"provider_id","model"}` of the conversation's saved `settings` (`GET /v1/sessions/{id}/settings`), without reasoning effort or speed. It is omitted when no model is saved; a turn then uses the Settings default. An external-agent conversation carries the agent's provider id (`local-codex`, `local-grok`, `local-pi`, `local-claude`, `local-cursor`).
 - `workspace`, when present, is the workspace view below. It is omitted when the conversation has no workspace, and also when that binding cannot be read.
 - `scheduled`, when present, is `{"job_id","name","run_id"}` for a conversation a standalone scheduled run created.
 - `origin`, when present on a list row, is only a Bot origin (below). A terminal import's origin is not on the list.
@@ -7998,7 +8296,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 
 `parent_session` is included when task records are kept: the parent conversation id, or `""` when there is none. It is omitted when task records are not kept.
 
-`executor` is `gyres` unless an external agent owns the conversation, then `codex`, `grok`, `pi`, or `claude`. If more than one binding is present, the last one applied wins, in that order, so Claude wins over pi, Grok, then Codex. `executor_model` is that binding's model. `executor_options` for Codex is `{"reasoning_effort","service_tier"}`, either of which may be `""`. For Grok, pi, and Claude it is `{"reasoning_effort"}` only.
+`executor` is `gyres` unless an external agent owns the conversation, then `codex`, `grok`, `pi`, `claude`, or `cursor`. If more than one binding is present, the last one applied wins, in that order, so Cursor wins over Claude, pi, Grok, then Codex. `executor_model` is that binding's model. `executor_options` for Codex is `{"reasoning_effort","service_tier"}`, either of which may be `""`. For Grok, pi, Claude and Cursor it is `{"reasoning_effort"}` only (always `""` for Cursor).
 
 `origin` is a Bot origin, unless a Codex, Grok or Claude binding carries a terminal origin, which replaces it. pi does not set `origin`.
 
@@ -8133,7 +8431,7 @@ Content blocks carry only the fields of their `type`:
 
 ## External agents
 
-Codex, Grok, pi, and Claude can own a conversation. Their provider ids are `local-codex`, `local-grok`, `local-pi`, and `local-claude`. Routes that refuse a history or workspace change answer `409` `{Label} owns this conversation history and workspace; start a new conversation to change them`. `{Label}` is `Codex`, `Grok`, `pi`, or `Claude`. A failure while reading the binding is refused the same way; when no name is known the label is `An external agent`. The context routes use a different sentence, and only when a binding is found: `{Label} owns its conversation context`.
+Codex, Grok, pi, Claude, and Cursor can own a conversation. Their provider ids are `local-codex`, `local-grok`, `local-pi`, `local-claude`, and `local-cursor`. Routes that refuse a history or workspace change answer `409` `{Label} owns this conversation history and workspace; start a new conversation to change them`. `{Label}` is `Codex`, `Grok`, `pi`, `Claude`, or `Cursor`. A failure while reading the binding is refused the same way; when no name is known the label is `An external agent`. The context routes use a different sentence, and only when a binding is found: `{Label} owns its conversation context`.
 
 ### GET /v1/sessions
 

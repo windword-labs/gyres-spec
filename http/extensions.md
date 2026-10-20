@@ -166,7 +166,7 @@ When the file is missing, `exists` is false, `error` is `""`, `handlers` is `[]`
 - `max_continuations` is an integer from 0 to 5. When the file omits it, the value is 2.
 - Handler fields match the plugin `handlers` above, except `id` is not prefixed and a `./` command is left as written. `env` values are `""`.
 - `event` is one of `RunStart`, `RunEnd`, `BeforePrompt`, `BeforeModel`, `AfterModel`, `ModelError`, `BeforeTool`, `AfterTool`, `BeforeCompact`, `AfterCompact`, `BeforeFinish`, `ApprovalRequested`, `ApprovalResolved`, `RunPaused`, `RunResumed`, `BeforeSystemPrompt`, `RunSettled`. `Tool` is not valid in this file.
-- `executor`, only on `RunSettled`, is `core`, `codex`, `grok`, `pi` or `claude`.
+- `executor`, only on `RunSettled`, is `core`, `codex`, `grok`, `pi`, `claude` or `cursor`.
 
 Errors: none.
 

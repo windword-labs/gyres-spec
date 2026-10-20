@@ -1,8 +1,8 @@
 # External agents
 
-External agents are Codex, Grok, pi and Claude Code installed on the computer that runs Core. A conversation can be handed to one of them. These routes save that setup, report whether the program is installed and signed in, report usage for Codex, Grok and Claude, and for Codex, Grok and Claude Code attach a session that was started in a terminal.
+External agents are Codex, Grok, pi, Claude Code, Cursor and DeepSeek Harness (dsh) installed on the computer that runs Core. A conversation can be handed to one of them. These routes save that setup, report whether the program is installed and signed in, report usage for Codex, Grok and Claude, and for Codex, Grok and Claude Code attach a session that was started in a terminal.
 
-The path values are `codex`, `grok`, `pi` and `claude`. Settings and status are Core-wide, one object per agent. Usage splits into the conversation's own totals and the account's quota.
+The path values are `codex`, `grok`, `pi`, `claude`, `cursor` and `dsh`. Settings and status are Core-wide, one object per agent. Usage splits into the conversation's own totals and the account's quota.
 
 An error from these handlers is `application/json`:
 
@@ -15,11 +15,11 @@ An error from these handlers is `application/json`:
 Settings and status require an administrator key. Their responses, including errors, send `Cache-Control: no-store`. `PUT` replaces the whole settings object: a missing boolean is saved as false, a missing string as empty, and then the rules below run. The body is at most 8192 bytes. A body that is not JSON, has an unknown field, or is larger than that is rejected.
 
 - `enabled`: the agent can run only when true.
-- `executable`: empty, or the bare command name (`codex`, `grok`, `pi` or `claude`), means automatic, and is saved as `""`. Core then uses the newest install it finds. Any other value must be an absolute path.
+- `executable`: empty, or the bare command name (`codex`, `grok`, `pi`, `claude`, `cursor-agent` or `dsh`), means automatic, and is saved as `""`. Core then uses the newest install it finds. Any other value must be an absolute path.
 - `approval_scope`: `agent` (one approval covers every operation of that agent) or `operation` (each operation type is remembered separately). Anything else, including empty, is saved as `agent`.
 - `allow_members`: when false (the default), an ordinary access key cannot run this agent, and cannot list or attach its terminal sessions.
 
-`allow_unattended`, on Grok and Claude only, defaults to false. While it is false, a scheduled task or a channel message cannot use that agent.
+`allow_unattended`, on Grok, Claude, Cursor and dsh only, defaults to false. While it is false, a scheduled task or a channel message cannot use that agent.
 
 A status response is the last detection, returned immediately, plus:
 
@@ -628,6 +628,235 @@ Response: `200` the same object as `GET /v1/claude/status`.
   "executables": [{"path": "/usr/local/bin/claude", "version": "1.0.80", "source": "PATH"}]
 }
 ```
+
+Errors:
+
+- `500` the saved settings cannot be read
+- `500` the status could not be encoded
+
+Events: none.
+
+### GET /v1/cursor/settings
+
+Auth: admin
+Effect: Returns the Cursor settings. When none have been saved, the defaults below.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "enabled": false,
+  "executable": "",
+  "approval_scope": "agent",
+  "allow_unattended": false,
+  "allow_members": false
+}
+```
+
+Errors:
+
+- `500` the saved settings cannot be read
+
+Events: none.
+
+### PUT /v1/cursor/settings
+
+Auth: admin
+Effect: Replaces the Cursor settings and starts a detection. The saved object is returned. An empty object is valid and saves Cursor disabled, with automatic executable and `approval_scope` `agent`.
+
+Request:
+
+```json
+{
+  "enabled": true,
+  "executable": "",
+  "approval_scope": "agent",
+  "allow_unattended": false,
+  "allow_members": false
+}
+```
+
+Response: `200` the saved object, in the same shape.
+
+`executable` is `""` when the request asked for automatic (also for the bare name `cursor-agent`). `approval_scope` is `agent` unless the request sent `operation`.
+
+Errors:
+
+- `400` invalid Cursor settings
+- `400` use automatic or an absolute cursor-agent executable path
+- `500` the settings could not be saved
+
+Events: none.
+
+### GET /v1/cursor/status
+
+Auth: admin
+Effect: Returns the last Cursor detection without waiting. Starts one only when Cursor is enabled and no detection has finished. Sign-in comes from `cursor-agent status`; the models from Cursor's ACP model option.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "path": "/Users/me/.local/bin/cursor-agent",
+  "version": "2026.10.16-e3cb207",
+  "installed": true,
+  "logged_in": true,
+  "models": [
+    {"id": "gpt-5.5", "name": "gpt-5.5", "value": "gpt-5.5[context=272k,reasoning=medium,fast=false]"}
+  ],
+  "checked_at": "2026-10-20T12:00:00Z",
+  "checking": false,
+  "step": "",
+  "executable": {"path": "/Users/me/.local/bin/cursor-agent", "version": "2026.10.16-e3cb207", "auto": true},
+  "executables": [{"path": "/Users/me/.local/bin/cursor-agent", "version": "2026.10.16-e3cb207", "source": "PATH"}]
+}
+```
+
+- `id` is the model's base name, used as the chat model; `value` is Cursor's own value for it, carrying the parameters (effort, context, fast) Cursor last used for that model. There are no reasoning efforts in Gyres.
+- A missing program sets `error` to `Cursor executable was not found`.
+
+Errors:
+
+- `500` the saved settings cannot be read
+- `500` the status could not be encoded
+
+Events: none.
+
+### POST /v1/cursor/status
+
+Auth: admin
+Effect: Starts a Cursor detection, unless one is already running, and returns the current snapshot immediately.
+
+Request: no body.
+
+Response: `200` the same object as `GET /v1/cursor/status`.
+
+Errors:
+
+- `500` the saved settings cannot be read
+- `500` the status could not be encoded
+
+Events: none.
+
+### GET /v1/dsh/settings
+
+Auth: admin
+Effect: Returns the dsh (DeepSeek Harness) settings. When none have been saved, the defaults below.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "enabled": false,
+  "executable": "",
+  "sandbox": "workspace-write",
+  "provider": "",
+  "approval_scope": "agent",
+  "allow_unattended": false,
+  "allow_members": false
+}
+```
+
+- `executable` automatic uses the newest installed `dsh`, else `npx` running the release Core pins. An absolute path may name a `dsh` install or `npx`.
+- `sandbox` is dsh's permission mode: `workspace-write` (the default), `read-only` or `danger-full-access`. An empty value is read and saved as `workspace-write`.
+- `provider` is the id of a Gyres provider dsh uses instead of its own model configuration, or empty for dsh's own.
+
+Errors:
+
+- `500` the saved settings cannot be read
+
+Events: none.
+
+### PUT /v1/dsh/settings
+
+Auth: admin
+Effect: Replaces the dsh settings and starts a detection. The saved object is returned.
+
+Request:
+
+```json
+{
+  "enabled": true,
+  "executable": "",
+  "sandbox": "workspace-write",
+  "provider": "",
+  "approval_scope": "agent",
+  "allow_unattended": false,
+  "allow_members": false
+}
+```
+
+- See `GET /v1/dsh/settings` and the shared settings rules. A `provider` that does not exist or has no active models is saved; detection then reports the error.
+
+Response: `200` the saved object, as for `GET /v1/dsh/settings`.
+
+Errors:
+
+- `400` invalid dsh settings
+- `400` use automatic or an absolute dsh executable path
+- `400` invalid dsh sandbox
+- `500` the settings could not be saved
+
+Events: none.
+
+### GET /v1/dsh/status
+
+Auth: admin
+Effect: Returns the last dsh detection without waiting. Starts one only when dsh is enabled and no detection has finished.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "path": "/Users/me/.nvm/versions/node/v24.21.0/bin/npx",
+  "version": "0.2.1-rc.2",
+  "installed": true,
+  "logged_in": true,
+  "models": [
+    {
+      "id": "deepseek-official/deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "value": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+      "reasoning_efforts": ["high", "max"]
+    }
+  ],
+  "checked_at": "2026-10-20T12:00:00Z",
+  "checking": false,
+  "step": "",
+  "executable": {"path": "/Users/me/.nvm/versions/node/v24.21.0/bin/npx", "version": "0.2.1-rc.2", "auto": true},
+  "executables": [{"path": "/Users/me/.nvm/versions/node/v24.21.0/bin/npx", "version": "0.2.1-rc.2", "source": "npx @deepseek-ai/dsh"}]
+}
+```
+
+- Before the first detection, `installed` and `logged_in` are false, `models` is `[]`, `checked_at` is `null`, and `path`, `version`, `provider` and `error` are omitted.
+- `logged_in` is true when dsh offers at least one model. dsh has no sign-in status: a missing API key fails the first request, not the detection.
+- `provider` repeats the settings' Gyres provider the detection used; omitted for dsh's own configuration.
+- On a model, `id` is `<route>/<model>` and is the model a conversation uses; `value` is dsh's own option value; `reasoning_efforts` is omitted when the model has none.
+- A missing program sets `error` and `installed` false. A Node.js older than 22.19 sets `installed` true and `error`.
+
+Errors:
+
+- `500` the saved settings cannot be read
+- `500` the status could not be encoded
+
+Events: none.
+
+### POST /v1/dsh/status
+
+Auth: admin
+Effect: Starts a dsh detection, unless one is already running, and returns the current snapshot immediately. Detection starts dsh, opens a session in a temporary directory to read the model option, closes it and removes the files dsh kept for that session.
+
+Request: no body.
+
+Response: `200` the same object as `GET /v1/dsh/status`, with `checking` true while the new detection runs.
 
 Errors:
 

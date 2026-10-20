@@ -26,7 +26,60 @@ Core-wide notifications (`GET /v1/events`) and run-stream frames (`GET /v1/sessi
 - `interrupted` — the task stopped and can be continued. A turn that finished with messages still queued is `interrupted`, with `reason` `追加消息已保存，请继续处理`.
 - `blocked` — the task cannot continue until the owner acts. `reason` says why.
 
-`reason` is that explanation, or `""`.
+`reason` is that explanation, or `""`. `reason_code` (Gyres 0.98+) is its stable
+machine code; show text localised from the code and fall back to `reason` for
+a code you do not know.
+
+The state is derived from the conversation's operation log (what recovery
+would do now) plus the live run and the owner's pause; it reads the same after
+a reconnect or a Core restart as the stream showed before.
+
+### Reason codes
+
+One code per decision; a code never changes meaning. `state` is where the
+code appears; `next` is the recovery action (`GET …/run-state`).
+
+| Code | State | Meaning |
+|---|---|---|
+| `tool_unknown` | blocked | A call that must not run twice was started and its result was not saved. Check what it did, then continue. |
+| `prompt_missing` | blocked | The task's prompt was edited or deleted. |
+| `step_budget` | blocked | The step used its attempts across retries and restarts. |
+| `local_agent` | blocked | An external agent's dispatch outcome is unknown: after a crash a Cursor task, a dsh task, or one whose history was unreadable or whose follow-up was in flight, waits for the owner's Continue. |
+| `agent_approval` | blocked | An external agent was waiting for an approval when Core stopped. |
+| `op_mismatch` | blocked | The log's open operation is not this task's. |
+| `log_corrupt` | blocked | The operation log is invalid or unreadable. |
+| `hook_unknown` | blocked | A hook's outcome is unknown. |
+| `key_revoked` | blocked | The key that created the task was revoked. |
+| `peer_question` | blocked | A peer's question is not continued after a restart. |
+| `start_failed` | blocked | The run could not start (configuration, storage). |
+| `resume_failed` | blocked | The recovered run could not start. |
+| `internal_error` | blocked | The run stopped on an internal error. |
+| `child_failed` | blocked | A child task could not be resumed. |
+| `schedule_failed` | blocked | A scheduled run could not be resumed. |
+| `external_blocked` | blocked | An external agent's run stopped for review. |
+| `storage_failed` | blocked | Task storage failed a write; nothing advances. |
+| `tool_changed` | blocked | After a restart, a tool with an unfinished call is gone, or its replay policy or input schema differs from the interrupted run's (`context.jsonl`). Other context changes resume. Continue proceeds. |
+| `unspecified` | blocked | A task blocked before reason codes existed. |
+| `paused` | paused | The owner paused the run. |
+| `storage_recovered` | paused | Storage failed and recovered; continue by hand. |
+| `auto_resume_off` | interrupted | Automatic recovery is off; continue by hand. |
+| `queued_pending` | interrupted | The reply is saved and queued messages wait. |
+| `resume_step` | interrupted | Recovery continues at the saved step. |
+| `resume_calls` | interrupted | Recovery continues; started calls without a result are run again or marked interrupted by their tool's policy. |
+| `replay_safe` | interrupted | Recovery runs again calls that are safe to repeat. |
+| `interrupted_calls` | interrupted | Started calls that must not repeat get an interrupted result. |
+| `queued_delivered` | interrupted | A saved reply is followed by queued messages, which run. |
+| `child_redelivered` | interrupted | A saved reply is followed by child results not yet delivered. |
+| `planned_restart` | interrupted | After a planned restart or update; no attempt is charged. |
+| `manual_continue` | (record only) | The owner pressed Continue. |
+| `parent_resume` | (record only) | A child resumed by its parent after a restart. |
+| `settled`, `abort_settled`, `output_truncated`, `log_missing` | interrupted | The log already settles the task; nothing runs. |
+| `stopped`, `parent_finished`, `conversation_gone`, `lane_closed`, `schedule_cancelled` | (settled receipts) | Why a task was cancelled. |
+
+`operation_resumed` records carry the resume code (`code`); claim settle
+records (`<data>/tasks/claims.jsonl`) carry `claim_started`,
+`claim_finished`, `claim_accepted`, `claim_released`, `claim_uncertain` or
+`claim_superseded` in `reason`.
 
 ## Goal
 
@@ -100,7 +153,7 @@ A wake object:
 - `image_count` (number) is present only when the message has images.
 - `delivering` (true) is present only while this message is being handed to the live turn. It cannot be deleted or reordered then.
 - `held` (true) and `held_until` (UTC, to the second) are present only while an edit hold is active. See `hold`.
-- `executor` is `native` (Gyres), `codex`, `grok`, `pi` or `claude`.
+- `executor` is `native` (Gyres), `codex`, `grok`, `pi`, `claude` or `cursor`.
 - `actions.edit` and `actions.front` are true. `actions.insert` and `actions.send_now` are true only while a turn is live (not while it is still preparing). For Grok, `insert` is true only when that turn can take text immediately.
 - `insert_note` is `""`, or `grok_timing_not_guaranteed` for Grok: Grok decides when inserted text is used.
 
@@ -179,10 +232,26 @@ Request: no body.
 Response: `200`
 
 ```json
-{"state":"running","reason":""}
+{"state":"blocked","reason":"write 的执行结果未保存……","reason_code":"tool_unknown",
+ "phase":"tools","op":"task_…","step":1,"next":"block",
+ "calls":[{"id":"call_1","name":"write","status":"started"}]}
 ```
 
 `state` and `reason` are [Run state](#run-state). `reason` is always present.
+Since Gyres 0.98 (additions, all optional):
+
+- `reason_code` — a [reason code](#reason-codes).
+- `phase`, `op`, `step` — where the open operation is (`accepted`,
+  `between`, `preparing`, `step_open`, `tools`, `final`, `aborting`,
+  `external`), its task id and step; only while a task is pending.
+- `next` — what recovery would do now when no run is live: `resume`,
+  `block`, `wait`, `finish` or `close`.
+- `waiting` — what a live run waits for: `approval`, `question` or `children`.
+- `calls` — the open step's calls without a saved result: `status`
+  `unstarted` (never started) or `started` (started, result not saved), and
+  `next` (`execute`, `cancel`, `keep`) when no run is live and it is known before the run resumes.
+- `queued`, `children` — queued messages not yet in the transcript, child
+  results not yet delivered.
 
 Errors:
 
@@ -333,7 +402,7 @@ Response: `200`
 - `delivered` is true after the parent has been given the outcome.
 - `outcome` is present once delivered, and is the recorded result state (`completed`, `failed`, `cancelled`, or another task state).
 - `cwd` is present only when the child's working directory differs from the parent's.
-- `state` while the child runs is `running`, `pausing` or `paused`, otherwise the task state (`interrupted`, `blocked`, `completed`, `failed`, `cancelled`). A child whose start was never recorded is `failed` with `reason` `子任务启动记录不完整`. After delivery, `state` is `outcome`, or `completed` when no outcome was stored, and `reason` may be `已交付；后续执行见子会话`.
+- `state` while the child runs is `running`, `pausing`, `paused` or `waiting_children`; while its task is pending, the child conversation's [run state](#get-v1sessionsidrun-state) (`interrupted`, `paused`, `blocked`), with `reason_code`; otherwise the task state (`completed`, `failed`, `cancelled`). A child whose start was never recorded is `failed` with `reason` `子任务启动记录不完整`. After delivery, `state` is `outcome`, or `completed` when no outcome was stored, and `reason` may be `已交付；后续执行见子会话`.
 - `reason` is present when the task has one.
 - `result` is present once the child has finished and is not still running. It is the child's assistant text, cut at 16000 characters with a trailing `\n[Result truncated; use session_search with child session ID for full history.]`, plus the task error when there is one. After delivery it is the summary stored at delivery.
 - `parent_session` is the parent's conversation id, or `""` when this conversation is not a child.

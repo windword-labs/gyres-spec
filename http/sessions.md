@@ -24,7 +24,7 @@ Timestamps written by these routes (`created`, `modified`, `pinned_at`, `archive
 - `pausing` while a pause was asked and work is still inside the run.
 - `paused` while the slot is paused and that work has left.
 - `waiting_children` while the slot says running and is waiting on children.
-- Otherwise, if a task receipt is still pending: `blocked` when the receipt store is blocked, else the receipt's `running`, `paused`, `interrupted`, or `blocked`.
+- Otherwise, if a task is still pending: `blocked` when the receipt store is blocked, when the task is marked blocked, or when its operation log says recovery would block it (for example a started call whose result was not saved); `paused` when it is paused; else `interrupted` (`running` only for a moment while a run starts or ends). This is the same state as [`GET /v1/sessions/{id}/run-state`](runs.md#get-v1sessionsidrun-state), which also gives the reason code.
 - `idle` when none of that applies.
 
 A list row can have `running: true` and `run_state: "paused"`. A leftover receipt can have `running: false` and `run_state` `interrupted`, `paused`, or `blocked`.
@@ -59,7 +59,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 - A context record has `metadata.contextUpdateKey` of `workspace_environment`, `current_date`, `bot_memory`, or `workspace_roots_status`.
 - `title` is omitted when no custom title is stored. Clients then show `first_message`.
 - `pinned_at` is omitted when the conversation is not pinned. Pinning again keeps the original time.
-- `model` is `{"provider_id","model"}` of the conversation's saved `settings` (`GET /v1/sessions/{id}/settings`), without reasoning effort or speed. It is omitted when no model is saved; a turn then uses the Settings default. An external-agent conversation carries the agent's provider id (`local-codex`, `local-grok`, `local-pi`, `local-claude`).
+- `model` is `{"provider_id","model"}` of the conversation's saved `settings` (`GET /v1/sessions/{id}/settings`), without reasoning effort or speed. It is omitted when no model is saved; a turn then uses the Settings default. An external-agent conversation carries the agent's provider id (`local-codex`, `local-grok`, `local-pi`, `local-claude`, `local-cursor`).
 - `workspace`, when present, is the workspace view below. It is omitted when the conversation has no workspace, and also when that binding cannot be read.
 - `scheduled`, when present, is `{"job_id","name","run_id"}` for a conversation a standalone scheduled run created.
 - `origin`, when present on a list row, is only a Bot origin (below). A terminal import's origin is not on the list.
@@ -125,7 +125,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 
 `parent_session` is included when task records are kept: the parent conversation id, or `""` when there is none. It is omitted when task records are not kept.
 
-`executor` is `gyres` unless an external agent owns the conversation, then `codex`, `grok`, `pi`, or `claude`. If more than one binding is present, the last one applied wins, in that order, so Claude wins over pi, Grok, then Codex. `executor_model` is that binding's model. `executor_options` for Codex is `{"reasoning_effort","service_tier"}`, either of which may be `""`. For Grok, pi, and Claude it is `{"reasoning_effort"}` only.
+`executor` is `gyres` unless an external agent owns the conversation, then `codex`, `grok`, `pi`, `claude`, or `cursor`. If more than one binding is present, the last one applied wins, in that order, so Cursor wins over Claude, pi, Grok, then Codex. `executor_model` is that binding's model. `executor_options` for Codex is `{"reasoning_effort","service_tier"}`, either of which may be `""`. For Grok, pi, Claude and Cursor it is `{"reasoning_effort"}` only (always `""` for Cursor).
 
 `origin` is a Bot origin, unless a Codex, Grok or Claude binding carries a terminal origin, which replaces it. pi does not set `origin`.
 
@@ -260,7 +260,7 @@ Content blocks carry only the fields of their `type`:
 
 ## External agents
 
-Codex, Grok, pi, and Claude can own a conversation. Their provider ids are `local-codex`, `local-grok`, `local-pi`, and `local-claude`. Routes that refuse a history or workspace change answer `409` `{Label} owns this conversation history and workspace; start a new conversation to change them`. `{Label}` is `Codex`, `Grok`, `pi`, or `Claude`. A failure while reading the binding is refused the same way; when no name is known the label is `An external agent`. The context routes use a different sentence, and only when a binding is found: `{Label} owns its conversation context`.
+Codex, Grok, pi, Claude, and Cursor can own a conversation. Their provider ids are `local-codex`, `local-grok`, `local-pi`, `local-claude`, and `local-cursor`. Routes that refuse a history or workspace change answer `409` `{Label} owns this conversation history and workspace; start a new conversation to change them`. `{Label}` is `Codex`, `Grok`, `pi`, `Claude`, or `Cursor`. A failure while reading the binding is refused the same way; when no name is known the label is `An external agent`. The context routes use a different sentence, and only when a binding is found: `{Label} owns its conversation context`.
 
 ### GET /v1/sessions
 

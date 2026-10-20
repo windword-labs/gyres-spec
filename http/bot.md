@@ -25,7 +25,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 
 A session id is UTC time `YYYY-MM-DDTHH-MM-SS`, then `_`, then a UUID. Example: `2026-10-14T12-02-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b`.
 
-External-agent provider ids, refused on `PUT /v1/bot`, are `local-codex`, `local-grok`, `local-pi`, and `local-claude`.
+External-agent provider ids, refused on `PUT /v1/bot`, are `local-codex`, `local-grok`, `local-pi`, `local-claude`, and `local-cursor`.
 
 ## Chats
 
@@ -40,7 +40,7 @@ Each chat:
 - `channel` (string) is present for a chat created for a kind (`feishu` or `discord`). It stays after `/new` points the kind at a newer chat.
 - `ended` (string, UTC `YYYY-MM-DDTHH:MM:SSZ`) is present after `/new` moved the main-chat pointer or the kind's binding off this chat. The chat stays listed and usable.
 - `running` (bool) is true while a live turn holds the chat, including while that turn is `paused` or `pausing`.
-- `run_state` (string) while a live turn holds the chat is `running`, `pausing`, `paused`, or `waiting_children` (`running` that is waiting on child runs). When nothing is live but a task is still pending, it is that task's state: `running`, `paused`, `interrupted`, or `blocked` (`blocked` also when the pending task is marked blocked). Otherwise `idle`.
+- `run_state` (string) while a live turn holds the chat is `running`, `pausing`, `paused`, or `waiting_children` (`running` that is waiting on child runs). When nothing is live but a task is still pending, it is the pending task's state as [`GET /v1/sessions/{id}/run-state`](runs.md#get-v1sessionsidrun-state) derives it: `paused`, `interrupted`, or `blocked`. Otherwise `idle`.
 
 `settings` is never included. The profile's `chats` always include `running` and `run_state`. `POST /v1/bot/chats` without `from` returns the chat without those two fields.
 
@@ -61,7 +61,7 @@ Each chat:
 - `created` and `updated` (strings, UTC `YYYY-MM-DDTHH:MM:SSZ`).
 - `visible` (bool) is present and true when the task runs in an ordinary conversation the owner can open. `POST /v1/bot/tasks` does not set it. Those tasks are not created by this route.
 - `adopted` (bool) is present and true when the Bot sent into an existing conversation it did not open. `prompt` is then `""`.
-- `executor` (string) is present when a visible task runs on an external agent: `codex`, `grok`, `pi`, or `claude`.
+- `executor` (string) is present when a visible task runs on an external agent: `codex`, `grok`, `pi`, `claude`, or `cursor`.
 - `run_id` (string) is present once the run whose outcome is reported back exists.
 - `delivered` (bool) is present and true once that outcome was handed to the requesting chat.
 - `report` (bool) is present and true on a hidden task whose outcome is reported back to the requesting chat (every hidden task created since #1507).
@@ -204,7 +204,7 @@ Request:
 - `description` (string). Trimmed. Omitted is `""` and clears a description already saved. Send the current description back when a save should keep it.
 - `task_provider_id` and `task_model` (strings). Omit both to leave the task model unchanged. Send both as `""` to clear it. Send both non-empty to pin it. Any other combination is rejected, including one empty and one non-empty. The same rule applies to `bot_provider_id` and `bot_model`.
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, optional). Omitted keeps the effort while the model stays the same and clears it when the same body changes that model. `""` is the model's default. A non-empty value must be one of the model's `reasoning_efforts` (`GET /v1/models`) and needs that model set.
-- A non-empty provider id of `local-codex`, `local-grok`, `local-pi`, or `local-claude` is rejected. Other fields are ignored.
+- A non-empty provider id of `local-codex`, `local-grok`, `local-pi`, `local-claude`, or `local-cursor` is rejected. Other fields are ignored.
 
 Response: `200` the profile, same shape as `GET /v1/bot`, after the save and after the main chat exists.
 
