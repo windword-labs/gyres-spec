@@ -16,6 +16,20 @@ Each entry:
     - What changed (endpoint, field or event).
       Migration: what a client must do.
 
+## api_version 4 (Gyres 0.97.6)
+
+- `POST /v1/skills/preview` is gone; `POST /v1/skills/inspect` (admin)
+  lists every skill bundle of a URL: a raw `SKILL.md`, a GitHub repository,
+  tree, blob or raw URL, or a zip / tar.gz archive. `POST /v1/skills/install`
+  now takes `bundles`, `expected_digests` (path → digest) and `replace`
+  instead of `expected_digest`, writes whole bundles and returns
+  `installed` (a list) instead of `skill`.
+  Migration: inspect, let the owner choose bundles, then install them with
+  the digests from the inspection.
+- `POST /v1/skills/uninstall` removes the whole bundle when its history keeps
+  every file, and returns `removed_bundle`.
+  Migration: none needed; show the new field if useful.
+
 ## api_version 3 (Gyres 0.97.0)
 
 - Run stream event `claude_activity` is renamed `agent_activity` and is now

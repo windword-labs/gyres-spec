@@ -69,7 +69,7 @@ A skill object:
 - `name` comes from the file's frontmatter: lowercase letters, digits, and single hyphens, at most 64 characters.
 - `description` is the frontmatter description.
 - `path` is the absolute path of that `SKILL.md` on the machine running Core.
-- `source` is `global` for a skill installed for every conversation, the project directory the bundle was found under for a project skill, `builtin` for a skill shipped with Core, or `plugin:<name>` for a skill from an enabled plugin. The install response uses `global` or `project` instead; see `POST /v1/skills/install`.
+- `source` is `global` for a skill installed for every conversation, the project directory the bundle was found under for a project skill, `builtin` for a skill shipped with Core, or `plugin:<name>` for a skill from an enabled plugin.
 - `digest` is 64 lowercase hex characters, the SHA-256 of the file's bytes.
 
 `GET /v1/skills` returns `{"skills":[...],"warnings":[...]}`. Both arrays are present. `warnings` lists discovery problems; a bad bundle is skipped and the others are still returned. Project and global skills come first, ordered by name then path. Plugin skills follow, grouped by plugin name. Built-ins follow those. A project skill hides a global skill of the same name. A name already present hides a plugin skill and a built-in of that name. The same name under two project directories is two entries.
@@ -436,64 +436,116 @@ Errors:
 
 Events: none.
 
-### POST /v1/skills/install
+### POST /v1/skills/inspect
 
 Auth: admin
-Effect: Fetches one `SKILL.md` from an `http` or `https` URL and writes it onto the machine running Core. `scope` `global` installs it for every conversation. `scope` `project` installs it under that project's primary directory (the library, when the project has no folders). Scripts in the bundle are not run. The response sends `Cache-Control: no-store`.
+Effect: Downloads a URL and lists the skill bundles it holds, without installing anything or running any of it. Accepted: a raw `SKILL.md`; a GitHub repository page, `tree/<ref>/<path>`, `blob/<ref>/<path>` or `raw.githubusercontent.com/.../SKILL.md` URL (Core downloads that ref's archive from `codeload.github.com`, `HEAD` for a repository page, and keeps only the sub-path); a `.zip`, `.tar.gz` or `.tgz` archive (any body that is a zip or gzip archive is read as one). A bundle is a directory with a valid `SKILL.md`; a file belongs to the nearest bundle directory above it. The response sends `Cache-Control: no-store`.
 
 Request:
 
 ```json
-{
-  "url": "https://192.0.2.10/skills/brand/SKILL.md",
-  "scope": "project",
-  "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b",
-  "expected_digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-}
+{ "url": "https://github.com/example/skills" }
 ```
 
-- The body is one JSON object of at most 8192 bytes and may contain only these fields.
-- `url` (string) is required, at most 2048 characters, `http` or `https`, with a host and no user name. A local or private address is rejected, including after DNS lookup and on a redirect. The fetch gives up after 20 seconds. The file must be at most 256 KiB and must be a skill file: frontmatter between `---` lines, a `name` and a `description` as in the skill object above, and `requires` containing only `library` when it is present. Other frontmatter fields are ignored.
-- `scope` (string) is `global` or `project`.
-- `project_id` (string) is required when `scope` is `project`, and must be an existing project whose primary directory is available.
-- `expected_digest` (string) is optional. When it is sent, it must equal the digest of the fetched file or nothing is written.
+- `url` (string) is required, at most 2048 characters, `http` or `https`, with a host and no user info. `localhost`, names ending in `.localhost` or `.local`, and loopback, private, link-local, multicast, unspecified and RFC 6598 (`100.64.0.0/10`) addresses are refused, also after DNS lookup and on every redirect.
+- The body is JSON of at most 4096 bytes. Unknown fields are ignored.
+- Limits: one download at most 50 MB, an archive walked for at most 512 MB decompressed, a bundle at most 20 MB and 500 files, `SKILL.md` at most 256 KiB. The download times out after 2 minutes.
 
 Response: `200`
 
 ```json
 {
-  "skill": {
-    "name": "brand",
-    "description": "Apply the brand voice",
-    "path": "/work/demo/.agents/skills/brand/SKILL.md",
-    "source": "project",
-    "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-  },
+  "url": "https://github.com/example/skills",
+  "download": "https://codeload.github.com/example/skills/tar.gz/HEAD",
+  "kind": "github",
+  "bundles": [
+    {
+      "path": "skills/pdf",
+      "name": "pdf",
+      "description": "Work with PDF files",
+      "files": [
+        { "path": "SKILL.md", "size": 8123 },
+        { "path": "scripts/fill.py", "size": 2040, "exec": true }
+      ],
+      "size": 10163,
+      "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "skipped": [".DS_Store"]
+    }
+  ],
+  "warnings": ["skills/broken/SKILL.md: invalid name or description"]
+}
+```
+
+- `kind` is `skill` (the URL was one `SKILL.md`; its bundle `path` is `.`), `github`, `archive`, or `page` (an ordinary web page or another document: `bundles` is empty and a warning says so; this is not an error).
+- `bundles` are sorted by `path`, the directory inside the source (`.` for its root). `files` are sorted, relative to the bundle; `exec` marks an executable file. `skipped` lists entries left out: hidden files, links and devices. A bundle over the limits has `error` and no `digest`, `files` or `size`, and cannot be installed.
+- `digest` is the lowercase hex SHA-256 over every file's path, content hash and executable bit. Install checks it.
+- `warnings` lists `SKILL.md` files that are not valid skills.
+
+Errors:
+
+- `400` `invalid URL request`
+- `400` the URL was refused or could not be fetched: `URL is required and must be at most 2048 characters`, `URL must be an http or https address`, `local and private network URLs are not allowed`, `could not fetch <url>: ...`, `<url> returned HTTP <status>`, `download exceeds 50 MB`, `<url> is not a zip or tar.gz archive`, an archive that is invalid, expands past 512 MB or has a member with an absolute path, `..` or a backslash
+- `403` the key is not an administrator's
+
+Events: none.
+
+### POST /v1/skills/install
+
+Auth: admin
+Effect: Downloads the URL again and writes the chosen bundles (`SKILL.md` and every supporting file) onto the machine running Core: `scope` `global` into `<home>/skills/<name>`, `scope` `project` into that project's primary directory under `.agents/skills/<name>` (the library, when the project has no folders). `<name>` is each bundle's frontmatter name. Each bundle is recorded as an owner version in the skill's history. Nothing is run. The response sends `Cache-Control: no-store`.
+
+Request:
+
+```json
+{
+  "url": "https://github.com/example/skills",
+  "bundles": ["skills/pdf"],
+  "expected_digests": { "skills/pdf": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+  "scope": "project",
+  "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b",
+  "replace": false
+}
+```
+
+- The body is one JSON object of at most 65536 bytes and may contain only these fields.
+- `url` is checked as in `POST /v1/skills/inspect`.
+- `bundles` (array of strings) is required: bundle `path`s from the inspection. Two chosen bundles may not share a name.
+- `expected_digests` (object) maps every chosen path to the `digest` the inspection returned. A bundle whose digest changed is refused and nothing is written.
+- `scope` (string) is `global` or `project`. `project_id` (string) is required when `scope` is `project`, and must be an existing project whose primary directory is available.
+- `replace` (boolean) allows overwriting a skill of the same name in that scope. The current bundle is recorded in its history first and then replaced as a whole. A bundle holding files history cannot keep (hidden files, links, files over the history limits) is never replaced.
+
+Response: `200`
+
+```json
+{
+  "installed": [
+    { "name": "pdf", "path": "/work/demo/.agents/skills/pdf/SKILL.md", "files": 12 }
+  ],
   "context_reload_required": true
 }
 ```
 
-- `skill` is the installed file. `path` is where it was written. `source` is the request `scope`, `global` or `project`, which is not the `source` a later `GET /v1/skills` returns for a project skill.
-- `context_reload_required` is always `true`. A conversation that already has a catalog does not list the new skill until its context is built again.
+- `installed` lists each written bundle: `name`, the `path` of its `SKILL.md`, the number of `files`, and `replaced: true` when it replaced an existing skill.
+- When some bundles were written and a later one failed, the response is still `200` with those in `installed` and the failure in `error`.
+- `context_reload_required` is always `true`. A conversation that already has a catalog does not list the new skills until its context is built again.
 
 Errors:
 
-- `400` invalid Skill install request (the body is not a JSON object of these fields, or is larger than 8192 bytes)
-- `400` scope must be global or project
-- `400` project_id is required for project Skills
-- `400` the URL or the file was rejected. Stable messages include `URL is required and must be at most 2048 characters`, `URL must be an http or https address`, `local and private network URLs are not allowed`, `could not fetch Skill: ...`, `Skill URL returned HTTP <status>`, `could not read Skill: ...`, `SKILL.md exceeds 256 KiB`, `missing YAML frontmatter`, `unterminated YAML frontmatter`, `invalid name or description`, and `unknown requires "<value>" (only library)`
-- `400` project directories are unavailable
-- `404` project not found
-- `409` Skill changed after preview; preview it again
-- `409` Skill is already installed; remove it before reinstalling
-- `500` the project list could not be read, the destination could not be checked, or the file could not be written
+- `400` `invalid Skill install request` (the body is not a JSON object of these fields, or is larger than 65536 bytes)
+- `400` `scope must be global or project`
+- `400` `project_id is required for project Skills`
+- `400` the URL was refused or could not be fetched (as for inspect), a chosen bundle is not in the source, is over the limits, has no expected digest, or two chosen bundles share a name
+- `400` `project directories are unavailable`
+- `403` the key is not an administrator's
+- `404` `project not found`
+- `409` a bundle changed since it was inspected, or a skill of that name is already installed (send `replace`)
 
 Events: none.
 
 ### POST /v1/skills/uninstall
 
 Auth: admin
-Effect: Removes one global or project skill that was listed for an available project primary directory or for every conversation. The `SKILL.md` file is deleted. The directory that contained it is removed only when that leaves the directory empty; any other file there is kept. Built-in skills, plugin skills, and a skill that exists only under an additional project directory are left in place. The response sends `Cache-Control: no-store`.
+Effect: Removes one global or project skill that was listed for an available project primary directory or for every conversation. The bundle is recorded in its history first. A bundle directly in the skills directory whose every file the history keeps is removed whole. Otherwise (a folder linked from elsewhere, hidden files such as `.git`, links, files over the history limits) only `SKILL.md` is deleted, and its folder only when that leaves it empty. Built-in skills, plugin skills, and a skill that exists only under an additional project directory are left in place. The response sends `Cache-Control: no-store`.
 
 Request:
 
@@ -519,10 +571,12 @@ Response: `200`
     "source": "/work/demo",
     "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   },
+  "removed_bundle": true,
   "context_reload_required": true
 }
 ```
 
+- `removed_bundle` is `true` when the whole folder was removed, `false` when only `SKILL.md` was.
 - `skill` is the catalog entry that was removed. `source` is `global` or the project directory, as in `GET /v1/skills`.
 - `context_reload_required` is always `true`. A conversation that already has a catalog keeps listing the skill until its context is built again.
 
