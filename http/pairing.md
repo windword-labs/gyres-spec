@@ -60,6 +60,7 @@ Response: `201`
 - `code` is the one-time pairing code, returned only here. Show it to the device; a later status read will not repeat it.
 - `id` identifies this code for status and cancel. It is not the code.
 - `expires_at` is 2 minutes after creation, UTC.
+- `relay` and `ck` are present only while the Gyres relay is on ([relay](relay.md)): the relay address for this Core and Core's X25519 Noise public key (base64url, 32 bytes). A pairing link carries them as the `relay` and `ck` fragment keys.
 - `core_url` is the address the device should use. The request is first taken as it arrived: scheme `https` when the connection is TLS, otherwise `http`, and the host header. When the peer is a trusted proxy, exactly one forwarding family is present, and those headers are well formed, that view is replaced by the proxy's scheme and host (`Forwarded`, or `X-Forwarded-Proto` together with `X-Forwarded-Host`). Both families at once, an untrusted peer, or a malformed header leave the connection unchanged.
 - If that host is a non-loopback, non-unspecified IP, or any other non-empty name other than `localhost` in any case, `core_url` is the scheme plus that host, port included.
 - Otherwise, if Core is serving HTTPS, `core_url` is that HTTPS address. It uses the name Core serves, and includes `:<port>` only when the port is not 443.
@@ -108,6 +109,7 @@ Response: `201`
 - `secret` is the new access key, shown only in this response. It has the form `gyres_`, then `key_id`, then `_`, then 64 lowercase hex characters. Send it later as `Authorization: Bearer <secret>`.
 - `key_id` is 24 lowercase hex characters.
 - `name` is the label stored for the key, including the date suffix. The same text is what status returns while the redeemed record remains.
+- `relay`, `ck` and `ticket` are present only while the Gyres relay is on: the relay address, Core's Noise public key and this device's relay ticket (base64url, 32 bytes), shown only here ([relay](relay.md)).
 
 Errors:
 
