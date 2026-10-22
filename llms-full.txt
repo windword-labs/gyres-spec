@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.99.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.100.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -570,6 +570,7 @@ Apply frames in order. Ignore a `type` you do not know.
 - `usage` — token counts for the step. Stored totals still come from the usage routes.
 - `steering_message` — a user message entered between steps. Show `message`. A `metadata.internalMessage` row is Core's own text.
 - `result` — the outcome, and the last stored frame of a normal finish. `stop_reason` is `end_turn`, `error`, or `aborted`. `error` is omitted on `end_turn` and `aborted`. When the stream then closes, reload `GET /v1/sessions/{id}`.
+- `compaction_start` / `compaction_end` — Core is compacting the context before the next model request, which can take many seconds with nothing else streaming. Show a status until `compaction_end` (`ok` false when it failed) or `result`.
 - `approval` and `user_question` — see [Tool approvals](approvals.md). `output_discarded` (`reason` `overflow`) drops the reply streamed since the last stored row; a following `run_snapshot` replaces the view.
 
 `agent_end` finishes the loop. Wait for `result`, then reload the conversation. `stream_error` is not stored, has no `id`, and the response then ends. The turn itself continues; reload the conversation and reattach if it is still running ([Stop a run and reattach](stop-and-reattach.md)).
@@ -3070,7 +3071,7 @@ Response: `200`
 - `tools` is what the plugin declares. `name` is `plugin.tool` (the name people see). `model_name` is `plugin__tool` (the name a model calls). The path of `POST /v1/plugins/{name}/tools/{tool}` uses the short tool name, `look` in the example, not `name` or `model_name`. `side_effect` is `read` or `write` (`write` when omitted). `replay` is `safe`, `never`, `interrupt`, or `""`. `handler` is the namespaced handler id. The argument schema is not included.
 - `mcp` is the servers the plugin declares. `transport` is `stdio` or `http`. `env` and `headers` are sorted names only (`null` when there are none); values are never included. `args` is an array, or `null` when omitted.
 - `settings` is the declared list, which may be empty. `type` is `string`, `number`, `boolean` or `enum`. `secret`, `label`, `description` and `required` are always present. `default` and `options` are present only when declared (`options` is for `enum`). A secret has `set` (boolean) and never `value`. A non-secret has `value` only when a value is currently in force.
-- `web` is `null` when the plugin has no pages. Otherwise it has the keys that are declared: `panel` and `widget` are paths such as `ui/panel.html`, and `page` is `{ "file", "title", "icon", "titles"?, "badge"?, "show_at_zero"? }`. `icon` is `alert`, `inbox`, `list`, `chart`, `bell`, `book`, `flag` or `puzzle`. `titles` maps a language tag such as `zh` to a title. `badge` names one of the plugin's own read tools.
+- `web` is `null` when the plugin has no pages. Otherwise it has the keys that are declared: `panel` and `widget` are paths such as `ui/panel.html`, and `page` is `{ "file", "title", "icon", "titles"?, "badge"?, "show_at_zero"? }`. `icon` is `alert`, `inbox`, `list`, `chart`, `bell`, `book`, `flag` or `puzzle`. `titles` maps a language tag such as `zh` to a title. `badge` names one of the plugin's own read tools. `send` is present and `true` when the panel may send a message into its conversation (`POST /v1/plugins/{name}/send`).
 - `installed` is present only for a plugin installed from these routes (`source` of the plugin is `plugin`). `source` inside it is `git`, `path` or `archive`. `url` has no user name, password, query or fragment. `ref_kind` is `branch`, `tag`, `commit`, or absent when the fetch did not say. `commit` is the full commit hash. `sha256` is present for an archive and is the hex digest of the zip. `pinned` is present when true. `installed_at` is UTC, to the second. `update`, when present, is the last check: `checked_at`, `available`, and `remote_commit` when one was seen. A later install clears it.
 
 Errors:
@@ -3422,6 +3423,51 @@ Errors:
 - `500` the Bot conversation could not be created
 
 Events: `approvals.changed` when a write tool is recorded as approved and was not already allowed. A tool with `side_effect` `read` does not publish it. When approvals are not running, the tool still runs if its binding and access checks pass, and nothing is published; a failed check is `409`.
+
+### POST /v1/plugins/{name}/send
+
+Auth: any key
+Effect: Writes a message from the plugin's panel into the conversation the panel is attached to. The message is a user message whose record has `metadata.source` `plugin:<name>`. Into a running turn it steers or queues per the running-input setting; otherwise it starts a run. No approval card.
+
+Path: `name` plugin name.
+
+Request:
+
+```json
+{
+  "session_id": "2026-10-14T12-00-00_01234567-89ab-cdef-0123-456789abcdef",
+  "text": "Start the next stage",
+  "idempotency_key": "next-1"
+}
+```
+
+At most 1 MiB. Unknown fields are rejected.
+
+- `session_id` (string) is the conversation (a lane is `sessionId~laneId`). It must exist and must not be a subagent child or a hidden Bot task.
+- `text` (string) is 1 to 65536 bytes and not only whitespace.
+- `idempotency_key` (string) is 1 to 64 characters: letters, digits, `_` or `-`. Core keys the message as `plugin_<name>_<idempotency_key>`. When the conversation's latest task, updated within the last 10 minutes, already carries that key as its prompt or a queued message, nothing is sent.
+
+Response: `200`
+
+```json
+{ "session_id": "2026-10-14T12-00-00_01234567-89ab-cdef-0123-456789abcdef", "started": true }
+```
+
+Exactly one of `started` (a run started), `queued` (handed to the running turn) or `duplicate` (the key was already used; nothing sent) is `true`.
+
+Errors:
+
+- `400` invalid request
+- `400` `text` must be 1 to 65536 bytes
+- `400` `idempotency_key` must be 1 to 64 letters, digits, `_` or `-`
+- `403` the plugin does not declare `web.send`
+- `403` the conversation belongs to a subagent, or is a hidden Bot task
+- `403` the conversation runs on an external agent the key may not use
+- `404` plugin not found or not active (not enabled, invalid, or settings missing)
+- `404` conversation not found
+- `409`, `429`, `503` the run could not start or the message could not be queued (the message says why), as for `POST /v1/sessions/{id}/turns`
+
+Events: the usual run and `session.task` events of the conversation.
 
 ### DELETE /v1/plugins/{name}
 
@@ -7741,6 +7787,32 @@ Errors:
 
 Events: `session.wake` when one was removed.
 
+### POST /v1/sessions/{id}/deliver
+
+Auth: administrator key, hook token (own lane)
+Effect: Delivers the conversation's last answer, headed with `heading`, to the Bot's chats in the background (the loop plugin's delivery, docs/loop.md "Delivery to the Bot"): the Bot main chat, or the channel kind of the Bot channel chat it runs in.
+
+Path: `id` conversation handle.
+
+Request:
+
+```json
+{"heading": "check 3 — CI on main is green"}
+```
+
+Response: `202`
+
+```json
+{"target": "main"}
+```
+
+Errors:
+
+- `400` heading missing or over 2,000 bytes
+- `403` administrator key required
+- `404` session not found
+- `409` the Bot is not set up
+
 ### POST /v1/sessions/{id}/user-questions/{qid}/answer
 
 Auth: any key
@@ -11790,6 +11862,26 @@ A recoverable length stop dropped the reply streamed since the last stored row. 
 ```
 
 Refetch: if no `run_snapshot` follows, reload `GET /v1/sessions/{id}`.
+
+### compaction_start
+
+Core is compacting the conversation's context before the next model request (a summary request that can take many seconds, during which nothing else streams). Also sent when a provider context-limit error triggers a forced compaction. `compaction_end` follows.
+
+```json
+{ "type": "compaction_start" }
+```
+
+Refetch: nothing. Show that the context is being compacted until `compaction_end` or the run's `result`.
+
+### compaction_end
+
+The compaction announced by `compaction_start` finished. `ok` is false when it failed; the run then usually ends with an error in `result`. No summary text is sent.
+
+```json
+{ "type": "compaction_end", "ok": true }
+```
+
+Refetch: nothing.
 
 ### turn_end
 

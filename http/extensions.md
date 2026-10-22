@@ -122,7 +122,7 @@ Response: `200`
 - `tools` is what the plugin declares. `name` is `plugin.tool` (the name people see). `model_name` is `plugin__tool` (the name a model calls). The path of `POST /v1/plugins/{name}/tools/{tool}` uses the short tool name, `look` in the example, not `name` or `model_name`. `side_effect` is `read` or `write` (`write` when omitted). `replay` is `safe`, `never`, `interrupt`, or `""`. `handler` is the namespaced handler id. The argument schema is not included.
 - `mcp` is the servers the plugin declares. `transport` is `stdio` or `http`. `env` and `headers` are sorted names only (`null` when there are none); values are never included. `args` is an array, or `null` when omitted.
 - `settings` is the declared list, which may be empty. `type` is `string`, `number`, `boolean` or `enum`. `secret`, `label`, `description` and `required` are always present. `default` and `options` are present only when declared (`options` is for `enum`). A secret has `set` (boolean) and never `value`. A non-secret has `value` only when a value is currently in force.
-- `web` is `null` when the plugin has no pages. Otherwise it has the keys that are declared: `panel` and `widget` are paths such as `ui/panel.html`, and `page` is `{ "file", "title", "icon", "titles"?, "badge"?, "show_at_zero"? }`. `icon` is `alert`, `inbox`, `list`, `chart`, `bell`, `book`, `flag` or `puzzle`. `titles` maps a language tag such as `zh` to a title. `badge` names one of the plugin's own read tools.
+- `web` is `null` when the plugin has no pages. Otherwise it has the keys that are declared: `panel` and `widget` are paths such as `ui/panel.html`, and `page` is `{ "file", "title", "icon", "titles"?, "badge"?, "show_at_zero"? }`. `icon` is `alert`, `inbox`, `list`, `chart`, `bell`, `book`, `flag` or `puzzle`. `titles` maps a language tag such as `zh` to a title. `badge` names one of the plugin's own read tools. `send` is present and `true` when the panel may send a message into its conversation (`POST /v1/plugins/{name}/send`).
 - `installed` is present only for a plugin installed from these routes (`source` of the plugin is `plugin`). `source` inside it is `git`, `path` or `archive`. `url` has no user name, password, query or fragment. `ref_kind` is `branch`, `tag`, `commit`, or absent when the fetch did not say. `commit` is the full commit hash. `sha256` is present for an archive and is the hex digest of the zip. `pinned` is present when true. `installed_at` is UTC, to the second. `update`, when present, is the last check: `checked_at`, `available`, and `remote_commit` when one was seen. A later install clears it.
 
 Errors:
@@ -474,6 +474,51 @@ Errors:
 - `500` the Bot conversation could not be created
 
 Events: `approvals.changed` when a write tool is recorded as approved and was not already allowed. A tool with `side_effect` `read` does not publish it. When approvals are not running, the tool still runs if its binding and access checks pass, and nothing is published; a failed check is `409`.
+
+### POST /v1/plugins/{name}/send
+
+Auth: any key
+Effect: Writes a message from the plugin's panel into the conversation the panel is attached to. The message is a user message whose record has `metadata.source` `plugin:<name>`. Into a running turn it steers or queues per the running-input setting; otherwise it starts a run. No approval card.
+
+Path: `name` plugin name.
+
+Request:
+
+```json
+{
+  "session_id": "2026-10-14T12-00-00_01234567-89ab-cdef-0123-456789abcdef",
+  "text": "Start the next stage",
+  "idempotency_key": "next-1"
+}
+```
+
+At most 1 MiB. Unknown fields are rejected.
+
+- `session_id` (string) is the conversation (a lane is `sessionId~laneId`). It must exist and must not be a subagent child or a hidden Bot task.
+- `text` (string) is 1 to 65536 bytes and not only whitespace.
+- `idempotency_key` (string) is 1 to 64 characters: letters, digits, `_` or `-`. Core keys the message as `plugin_<name>_<idempotency_key>`. When the conversation's latest task, updated within the last 10 minutes, already carries that key as its prompt or a queued message, nothing is sent.
+
+Response: `200`
+
+```json
+{ "session_id": "2026-10-14T12-00-00_01234567-89ab-cdef-0123-456789abcdef", "started": true }
+```
+
+Exactly one of `started` (a run started), `queued` (handed to the running turn) or `duplicate` (the key was already used; nothing sent) is `true`.
+
+Errors:
+
+- `400` invalid request
+- `400` `text` must be 1 to 65536 bytes
+- `400` `idempotency_key` must be 1 to 64 letters, digits, `_` or `-`
+- `403` the plugin does not declare `web.send`
+- `403` the conversation belongs to a subagent, or is a hidden Bot task
+- `403` the conversation runs on an external agent the key may not use
+- `404` plugin not found or not active (not enabled, invalid, or settings missing)
+- `404` conversation not found
+- `409`, `429`, `503` the run could not start or the message could not be queued (the message says why), as for `POST /v1/sessions/{id}/turns`
+
+Events: the usual run and `session.task` events of the conversation.
 
 ### DELETE /v1/plugins/{name}
 

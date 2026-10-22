@@ -842,6 +842,26 @@ A recoverable length stop dropped the reply streamed since the last stored row. 
 
 Refetch: if no `run_snapshot` follows, reload `GET /v1/sessions/{id}`.
 
+### compaction_start
+
+Core is compacting the conversation's context before the next model request (a summary request that can take many seconds, during which nothing else streams). Also sent when a provider context-limit error triggers a forced compaction. `compaction_end` follows.
+
+```json
+{ "type": "compaction_start" }
+```
+
+Refetch: nothing. Show that the context is being compacted until `compaction_end` or the run's `result`.
+
+### compaction_end
+
+The compaction announced by `compaction_start` finished. `ok` is false when it failed; the run then usually ends with an error in `result`. No summary text is sent.
+
+```json
+{ "type": "compaction_end", "ok": true }
+```
+
+Refetch: nothing.
+
 ### turn_end
 
 The model step numbered `turn` has finished (tools included, or the step was interrupted and the run is carrying on).

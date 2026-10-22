@@ -867,6 +867,32 @@ Errors:
 
 Events: `session.wake` when one was removed.
 
+### POST /v1/sessions/{id}/deliver
+
+Auth: administrator key, hook token (own lane)
+Effect: Delivers the conversation's last answer, headed with `heading`, to the Bot's chats in the background (the loop plugin's delivery, docs/loop.md "Delivery to the Bot"): the Bot main chat, or the channel kind of the Bot channel chat it runs in.
+
+Path: `id` conversation handle.
+
+Request:
+
+```json
+{"heading": "check 3 — CI on main is green"}
+```
+
+Response: `202`
+
+```json
+{"target": "main"}
+```
+
+Errors:
+
+- `400` heading missing or over 2,000 bytes
+- `403` administrator key required
+- `404` session not found
+- `409` the Bot is not set up
+
 ### POST /v1/sessions/{id}/user-questions/{qid}/answer
 
 Auth: any key

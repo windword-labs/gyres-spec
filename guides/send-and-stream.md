@@ -55,6 +55,7 @@ Apply frames in order. Ignore a `type` you do not know.
 - `usage` — token counts for the step. Stored totals still come from the usage routes.
 - `steering_message` — a user message entered between steps. Show `message`. A `metadata.internalMessage` row is Core's own text.
 - `result` — the outcome, and the last stored frame of a normal finish. `stop_reason` is `end_turn`, `error`, or `aborted`. `error` is omitted on `end_turn` and `aborted`. When the stream then closes, reload `GET /v1/sessions/{id}`.
+- `compaction_start` / `compaction_end` — Core is compacting the context before the next model request, which can take many seconds with nothing else streaming. Show a status until `compaction_end` (`ok` false when it failed) or `result`.
 - `approval` and `user_question` — see [Tool approvals](approvals.md). `output_discarded` (`reason` `overflow`) drops the reply streamed since the last stored row; a following `run_snapshot` replaces the view.
 
 `agent_end` finishes the loop. Wait for `result`, then reload the conversation. `stream_error` is not stored, has no `id`, and the response then ends. The turn itself continues; reload the conversation and reattach if it is still running ([Stop a run and reattach](stop-and-reattach.md)).
