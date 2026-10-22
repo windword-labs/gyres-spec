@@ -580,6 +580,8 @@ Response: `200`
 - `error` is present when the last connection failed. Secret text in it is replaced with `[redacted]`. An OAuth failure is replaced with a short sentence: registration refused, authorization required, authorization expired, timed out, or a generic OAuth failure.
 - `tools` is `{ "name", "description", "enabled" }` in the server's order. `enabled` is false when `include` leaves that tool out.
 - `has_secrets` is true when environment values, headers, a client secret, or a plugin secret is stored. The values are not returned.
+- `defer` is how the server's tools reach the model: omitted (automatic), `always` or `never`. A deferred server's tools are not sent with every model request; the model finds them by searching first.
+- `deferral` is present while the server is connected: `{ "deferred", "reason", "tools", "tokens", "limit"? }`. `tools` counts the offered tools and `tokens` estimates their definitions (JSON bytes / 4). `reason` is `browser` (the built-in browser is always deferred), `always`, `never`, `tools` or `tokens` (automatic: more than `limit` tools, or more than `limit` estimated tokens) or `small` (automatic: under both limits; currently 15 tools and 8,000 tokens).
 - `auth_url` is present while an authorization is waiting. Open it, then `POST /v1/mcp/{server}/callback` with the redirect URL if Core did not receive it.
 
 Errors:
@@ -620,7 +622,8 @@ At most 1 MiB.
 - `config` is the server. Empty `id` creates one and assigns a 32-hex id. Empty `timeout_seconds` becomes 120. `name` is required, at most 100 characters, and not blank.
 - On update, `revision` must be the current one. A mismatch means another save won: reload and retry. A `revision` on an id that does not exist is refused.
 - Omit `secrets` to keep the previous secrets and, when kind, URL, client id, redirect URL and the OAuth flag are unchanged, the saved OAuth login. Send `secrets` to replace them and drop that login. Header names and values must not contain CR or LF. OAuth cannot be combined with an `Authorization` header.
-- The built-in browser must stay enabled, with no `include`, no OAuth and no secrets. It cannot be replaced by a different server, and a second browser cannot be added.
+- `defer` is omitted, `always` or `never`.
+- The built-in browser must stay enabled, with no `include`, no `defer`, no OAuth and no secrets. It cannot be replaced by a different server, and a second browser cannot be added.
 - `plugin` must be empty. An id starting with `plugin-`, or an existing plugin server, is refused.
 
 Response: `200` the `GET /v1/mcp` body. Connection continues after the response; read again for `state`.
@@ -637,13 +640,14 @@ Errors: every body is `{"error":"<message>"}` with no `failure` object.
 - `400` OAuth requires remote MCP
 - `400` OAuth requires a valid redirect URL
 - `400` empty tool filter
+- `400` defer must be empty, always or never
 - `400` MCP configuration changed; reload before saving
 - `400` MCP no longer exists
 - `400` a plugin's MCP server is managed on its plugin card
 - `400` unknown builtin MCP
 - `400` invalid MCP header
 - `400` choose OAuth or an Authorization header
-- `400` the built-in browser cannot be turned off, filtered, given secrets, or given OAuth; the message is `内置浏览器始终启用，全部工具可用，无需配置凭据或授权`
+- `400` the built-in browser cannot be turned off, filtered, given a `defer` setting, given secrets, or given OAuth; the message is `内置浏览器始终启用，全部工具可用，无需配置凭据或授权`
 - `400` the built-in browser cannot be replaced; the message is `内置浏览器不可替换`
 - `400` a browser server already exists; the message is `内置浏览器已存在`
 - `503` MCP unavailable
