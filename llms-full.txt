@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.102.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.103.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -5909,7 +5909,7 @@ Events: none.
 ### POST /v1/peer-room
 
 Auth: any key
-Effect: Creates a channel; an existing one is left as it is. Names are 1–32 lowercase letters, digits or dashes; spaces become dashes and a leading `#` is dropped.
+Effect: Creates a channel; an existing one is left as it is. Names are 1–32 lowercase letters, digits or dashes; spaces become dashes and a leading `#` is dropped. The name `channels` is reserved for the room index.
 
 Request:
 
@@ -6530,7 +6530,7 @@ Response: `200`
 ```
 
 - `kind` is `skill` (the URL was one `SKILL.md`; its bundle `path` is `.`), `github`, `archive`, or `page` (an ordinary web page or another document: `bundles` is empty and a warning says so; this is not an error).
-- `bundles` are sorted by `path`, the directory inside the source (`.` for its root). `files` are sorted, relative to the bundle; `exec` marks an executable file. `skipped` lists entries left out: hidden files, links and devices. A bundle over the limits has `error` and no `digest`, `files` or `size`, and cannot be installed.
+- `bundles` are sorted by `path`, the directory inside the source (`.` for its root). `files` are sorted, relative to the bundle; `exec` marks an executable file. `skipped` lists entries left out: hidden files, links and devices. A bundle over the limits, or whose files differ only by ASCII letter case, has `error` and no `digest`, `files` or `size`, and cannot be installed.
 - `digest` is the lowercase hex SHA-256 over every file's path, content hash and executable bit. Install checks it.
 - `warnings` lists `SKILL.md` files that are not valid skills.
 

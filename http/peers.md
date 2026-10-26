@@ -362,7 +362,7 @@ Events: none.
 ### POST /v1/peer-room
 
 Auth: any key
-Effect: Creates a channel; an existing one is left as it is. Names are 1–32 lowercase letters, digits or dashes; spaces become dashes and a leading `#` is dropped.
+Effect: Creates a channel; an existing one is left as it is. Names are 1–32 lowercase letters, digits or dashes; spaces become dashes and a leading `#` is dropped. The name `channels` is reserved for the room index.
 
 Request:
 

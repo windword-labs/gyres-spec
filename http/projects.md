@@ -477,7 +477,7 @@ Response: `200`
 ```
 
 - `kind` is `skill` (the URL was one `SKILL.md`; its bundle `path` is `.`), `github`, `archive`, or `page` (an ordinary web page or another document: `bundles` is empty and a warning says so; this is not an error).
-- `bundles` are sorted by `path`, the directory inside the source (`.` for its root). `files` are sorted, relative to the bundle; `exec` marks an executable file. `skipped` lists entries left out: hidden files, links and devices. A bundle over the limits has `error` and no `digest`, `files` or `size`, and cannot be installed.
+- `bundles` are sorted by `path`, the directory inside the source (`.` for its root). `files` are sorted, relative to the bundle; `exec` marks an executable file. `skipped` lists entries left out: hidden files, links and devices. A bundle over the limits, or whose files differ only by ASCII letter case, has `error` and no `digest`, `files` or `size`, and cannot be installed.
 - `digest` is the lowercase hex SHA-256 over every file's path, content hash and executable bit. Install checks it.
 - `warnings` lists `SKILL.md` files that are not valid skills.
 
