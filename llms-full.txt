@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.105.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.106.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -10352,7 +10352,8 @@ Response: `200`
     { "url": "https://core.example.com", "source": "https" },
     { "url": "http://192.0.2.10:15100", "source": "lan" },
     { "url": "http://127.0.0.1:15100", "source": "loopback" }
-  ]
+  ],
+  "caller_loopback": false
 }
 ```
 
@@ -10365,6 +10366,7 @@ Response: `200`
   3. `lan` — one `http://<ipv4>:<port>` for each up, non-loopback IPv4 address, only when HTTP listens on every interface. Private addresses come first.
   4. `loopback` — `http://127.0.0.1:<http port>`, always.
 - Only IPv4 is listed, apart from the HTTPS URL, which uses the configured domain. If the machine's addresses cannot be listed, the `lan` entries are skipped and `loopback` remains.
+- `caller_loopback` is `true` when the request's direct TCP peer is a loopback address (`127.0.0.0/8` or `::1`), so the caller runs on the Core machine. A request with forwarding headers (`Forwarded`, `X-Forwarded-For` and the like) or one tunnelled through the Gyres relay is always `false`; forwarded addresses are never read. A request from this machine to a LAN address arrives from that address and is also `false`. Older Cores omit the field.
 
 Errors: none.
 
