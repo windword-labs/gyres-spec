@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.109.1. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.109.2. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -6821,7 +6821,7 @@ Response: `200`
 ```
 
 - `account` is `null` when no account is signed in; it has `error` when the session needs a new sign-in.
-- `state` is `off`, `connecting`, `connected` or `error` (then `error` holds the reason).
+- `state` is `off`, `connecting`, `connected` or `error` (then `error` holds the reason). It is `off` whenever the connector is not running, which includes `enabled: true` before it has started (for example early in Core's startup) and when the relay identity could not be loaded.
 - `relay_id`, `address` and `client_key` name this Core's relay identity, created on first use.
 
 Errors: none.
