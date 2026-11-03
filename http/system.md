@@ -50,7 +50,7 @@ Response: `200`
   "supported": true,
   "binary": "/var/lib/gyres/browser/bin/agent-browser",
   "chrome": "/var/lib/gyres/browser/chrome/chrome",
-  "version": "0.38.1",
+  "version": "0.41.1",
   "log": "/var/lib/gyres/browser/install.log"
 }
 ```
@@ -63,7 +63,7 @@ Response: `200`
 - `supported` is true on macOS Apple silicon, Linux amd64, Linux arm64, Windows amd64 and Windows arm64.
 - `binary` is the path of the browser program on the Core host. It is present even when the file is not there yet.
 - `chrome` is the path of the Chrome executable. Omitted when none is published.
-- `version` is the browser release this Core installs (`0.38.1`).
+- `version` is the browser release this Core installs (`0.41.1`).
 - `log` is the path of the install log on the Core host. It is present before the first install.
 - The response is not `Cache-Control: no-store`. Poll this route while `state` is `installing`. An install gives up after 15 minutes and then `state` is `error`.
 
@@ -85,15 +85,15 @@ Response: `200`
 ```json
 {
   "state": "installing",
-  "version": "1.4.2",
-  "binary": "/var/lib/gyres/runtimes/bun/1.4.2/bun",
+  "version": "1.4.4",
+  "binary": "/var/lib/gyres/runtimes/bun/1.4.4/bun",
   "downloaded": 1048576,
   "total": 20971520
 }
 ```
 
 - `state` is `missing`, `installing`, `ready` or `error`. Core starts an install when it opens, on a host that supports it.
-- `version` is the runtime release this Core installs (`1.4.2`).
+- `version` is the runtime release this Core installs (`1.4.4`).
 - `binary` is the path of that runtime on the Core host.
 - `error` is omitted when empty. After a failed install it holds the reason.
 - `downloaded` is how many bytes of the archive have been written. `total` is the archive size in bytes, or `-1` when the download did not say a length. Both stay at `0` until a download starts, and are not cleared when `state` becomes `ready`. Use `state`, not these two numbers, to decide readiness.
