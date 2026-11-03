@@ -62,7 +62,7 @@ Sent once when the stream opens, before any other frame.
   "version": "1.4.0",
   "instance_id": "0123456789abcdef0123456789abcdef",
   "storage_space": { "data": "ok", "home": "low" },
-  "publishes": ["session.task", "bot.changed", "session.agent_usage", "tls.changed", "session.wake", "peers.changed"]
+  "publishes": ["session.task", "bot.changed", "session.agent_usage", "tls.changed", "session.wake", "peers.changed", "session.artifacts"]
 }
 ```
 
@@ -298,6 +298,19 @@ A recap was stored for the conversation.
 ```
 
 Refetch: `GET /v1/sessions/{id}/recap`.
+
+### session.artifacts
+
+`show_artifact` recorded a file in the conversation's artifacts, or an artifact's [versions](../docs/artifacts.md#versions) changed (a snapshot before an agent write, a restore). When the call ran in a side lane it is sent for the lane handle and again for the main conversation. Optional: listed in `ready.publishes`.
+
+```json
+{
+  "type": "session.artifacts",
+  "session_id": "2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd-ef0123456789"
+}
+```
+
+Refetch: `GET /v1/sessions/{id}/artifacts` (and, for a shown artifact, its `artifacts/versions`).
 
 ### session.agent_usage
 

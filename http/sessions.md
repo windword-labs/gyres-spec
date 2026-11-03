@@ -1047,6 +1047,88 @@ Errors:
 
 Events: none.
 
+### GET /v1/sessions/{id}/artifacts
+
+Auth: any key
+Effect: Returns the files `show_artifact` showed beside the conversation ([Artifacts](../../docs/artifacts.md)), oldest first. The last one is `current`. A lane handle reads its main conversation's list.
+
+Path: `id` session id or lane handle.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "artifacts": [
+    { "path": "/Users/me/.gyres/workspaces/c1/outputs/page.html", "title": "Orbit", "shown_at": "2026-11-03T12:20:00.000Z" }
+  ],
+  "current": { "path": "/Users/me/.gyres/workspaces/c1/outputs/page.html", "title": "Orbit", "shown_at": "2026-11-03T12:20:00.000Z" }
+}
+```
+
+Without artifacts, `artifacts` is `[]` and `current` is `null`.
+
+Errors:
+
+- `404` session not found
+
+Events: `session.artifacts` is sent when the tool changes the list.
+
+### GET /v1/sessions/{id}/artifacts/versions
+
+Auth: any key
+Effect: Lists the past states Core kept of one recorded artifact ([Artifact versions](../../docs/artifacts.md#versions)), newest first. The current file is not a version.
+
+Path: `id` session id or lane handle.
+
+Query: `path` absolute Core-host path; after symlinks a regular file inside the conversation's workspace roots (the `POST /v1/sessions/{id}/preview` rule) that is in the conversation's artifacts.
+
+Response: `200`
+
+```json
+{
+  "path": "/Users/me/.gyres/workspaces/c1/outputs/page.html",
+  "versions": [
+    { "n": 2, "time": "2026-11-03T12:31:05Z", "source": "manual", "size": 1830, "path": "/Users/me/.gyres/workspaces/c1/outputs/.versions/page.html/2-20261103T123105Z.html" },
+    { "n": 1, "time": "2026-11-03T12:22:40Z", "source": "agent", "size": 1702, "path": "/Users/me/.gyres/workspaces/c1/outputs/.versions/page.html/1-20261103T122240Z.html" }
+  ]
+}
+```
+
+`source` is `agent` (the agent's output after a `write`/`edit`, or the file when first shown), `manual` (changed outside the agent's writes, found before the next agent write or restore) or `restore` (the state a restore wrote). A version's `path` previews with `POST /v1/sessions/{id}/preview` like any workspace file.
+
+Errors:
+
+- `400` `path` missing, outside the workspace or not a regular file
+- `404` session not found, workspace unavailable, or not an artifact of this conversation
+- `500` the versions index could not be read
+
+Events: none.
+
+### POST /v1/sessions/{id}/artifacts/restore
+
+Auth: any key
+Effect: Keeps the artifact's current state as a `manual` version when it changed since the last agent write or restore, copies version `n` over the file, then keeps the result as a `restore` version.
+
+Path: `id` session id or lane handle.
+
+Request:
+
+```json
+{ "path": "/Users/me/.gyres/workspaces/c1/outputs/page.html", "n": 1 }
+```
+
+Response: `200`, the same body as `GET /v1/sessions/{id}/artifacts/versions` after the restore.
+
+Errors:
+
+- `400` invalid body, or `path` outside the workspace or not a regular file
+- `404` session not found, not an artifact of this conversation, or no version `n`
+- `500` the snapshot or the copy failed
+
+Events: `session.artifacts`.
+
 ### GET /v1/sessions/{id}/recap
 
 Auth: any key
