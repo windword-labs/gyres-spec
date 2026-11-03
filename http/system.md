@@ -614,6 +614,33 @@ Errors:
 
 Events: none.
 
+### POST /v1/privacy/rules/check
+
+Auth: any key
+Effect: Checks custom masking rules the way Core reads them and returns them tidied, so the rules editor on the privacy plugin's card can refuse a bad rule before it saves `custom_rules`. Nothing is stored.
+
+Request:
+
+```json
+{ "rules": [{ "kind": "api key", "prefix": "oc_sk_" }, { "kind": "ORDER", "regex": "order=(\\d{6,})" }] }
+```
+
+Each rule has a `kind` and either `prefix` or `regex`.
+
+Response: `200`
+
+```json
+{ "rules": [{ "kind": "API_KEY", "prefix": "oc_sk_" }, { "kind": "ORDER", "regex": "order=(\\d{6,})" }] }
+```
+
+- Kinds are normalised to placeholder form (`redact.RuleKind`: upper case, `_`, starting with a letter, at most 24; empty is `CUSTOM`); rules with neither prefix nor regex and exact repeats are dropped.
+
+Errors:
+
+- `400` invalid JSON body; or `{"error": "..."}` naming the rule that cannot be used: both prefix and regex, a prefix outside 3 to 64 characters, a regex over 300 characters or that does not compile (RE2) or matches empty text, more than 32 rules, a `;` or line break in a prefix or regex (the setting stores rules on one line), or rules that together would not fit the setting's 8 KiB
+
+Events: none.
+
 ### GET /v1/version
 
 Auth: any key
