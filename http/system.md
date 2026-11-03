@@ -381,6 +381,7 @@ Query: all optional.
 - `from` and `to` are RFC3339. `from` is inclusive and `to` is exclusive (`started` >= `from` and `started` < `to`). When both are set, `to` must be after `from`. A date with no time is rejected.
 - `origin` is `interactive`, `scheduled`, `compaction`, `memory_review` or `recap`. Omitted returns every bucket. It narrows the page, the summary, and the session, day and model groups. It does not narrow `breakdown.origins`.
 - `executor` is omitted, `gyres`, `all`, `agents`, `codex`, `grok` or `claude`. Omitted and `gyres` keep Core's own rows (a missing `executor` counts as `gyres`). `agents` keeps every external-agent row. `all` keeps every row. `codex`, `grok` and `claude` keep that agent.
+- `masked` is `true` (keep only rows where the privacy plugin masked at least one value) or `false`. Omitted means `false`.
 - `tz` is an integer number of minutes, from -840 to 840, the same value JavaScript's `getTimezoneOffset()` returns. It only names `breakdown.days`: that many minutes are subtracted from the UTC time (a negative value moves the clock forward) and the result is formatted `YYYY-MM-DD`. Omitted means `0`.
 - `offset` is how many matching rows to skip. Omitted means `0`. Past the end, `records` is empty and `total` is still the full count.
 - `limit` is the page size. Omitted or `0` means 100. Above 200 is treated as 200. The response `limit` is the value after that rule.
@@ -559,6 +560,7 @@ Response: `200`
 - `usage.input_tokens` is non-cached input. `output_tokens` includes reasoning tokens when the provider includes them there. `cache_read_tokens` and `cache_write_tokens` are separate. `cache_usage_reported` is true when the provider reported cache figures, and is omitted when false.
 - `executor` is omitted for Core (read those rows as `gyres`) and is `codex`, `grok` or `claude` for an external agent. `cost_usd` is that agent's own estimate for the turn, and `cost_source` is `agent_estimate`. Both are omitted when the agent gave no estimate. Core does not price its own requests.
 - `error` on a failed Core attempt is `模型请求失败；详情见所属对话`. On a cancelled Core attempt it is `请求已取消`. `failure`, when present, is the same shape as a request error's `failure` (`code`, `message`, `http_status`, `details`) and is a sanitised provider error. A cancelled attempt omits `failure`.
+- `masked` is how many values the privacy plugin replaced with placeholders in a Core request, and `masked_kinds` their kinds, sorted and distinct. Both are omitted when nothing was masked. Values are never recorded.
 - `diagnostics`, when present, compares this attempt with the previous one for the same conversation and purpose. It holds hashes only, never the prompt. `kind` is `baseline`, `unchanged`, `append_only`, `changed` or `limited`. `changes` lists what moved: `route`, `context`, `system`, `tools`, `parameters`, `history`. `previous_attempt` is the earlier attempt id. `first_difference` names the first item that differs. `common_items`, `item_count` and `previous_items` count items. `request_bytes` is the payload size. `body_hash`, `system_hash`, `tools_hash` and `parameters_hash` are hex digests. `context_epoch` names the context snapshot. `limited` is true when the comparison stopped at 4096 items.
 - `summary.requests`, `known`, `partial` and `unknown` count rows by `usage_state` (`known` is `reported`; anything other than `reported` or `partial` counts as `unknown`). `tokens` sums every matching row: `input`, `output`, `cache_read`, `cache_write`. `duration_ms` sums the attempts. `cache_known` counts rows that are `reported` and have `cache_usage_reported`. For those rows only, `cache_input` is input plus cache read plus cache write, and `cache_read` is the cache-read sum. `cost_usd` sums agent estimates, and `cost_known` counts the rows that had one.
 - `breakdown.sessions` is one object per conversation, largest token total first, then latest `last`, then `session_id`. `models` on a session is the distinct model names, sorted. `origins` on a session has only the buckets that had rows. `cost_usd` sums that session's agent estimates.
@@ -574,7 +576,41 @@ Errors:
 - `400` invalid origin
 - `400` invalid executor
 - `400` invalid time zone
+- `400` invalid masked filter
 - `500` cannot read usage records
+
+Events: none.
+
+### POST /v1/privacy/preview
+
+Auth: any key
+Effect: Masks a text the way the privacy plugin's current settings would mask a model request, and lists what it replaced. Nothing is remembered, logged or written: the placeholders are not kept for restoring replies.
+
+Request:
+
+```json
+{ "text": "my key is sk-..." }
+```
+
+`text` is required, at most 256 KiB as UTF-8. An empty string answers an empty result.
+
+Response: `200`
+
+```json
+{
+  "masked": "my key is {{API_KEY_k3v9x2mq}}",
+  "hits": [{ "placeholder": "{{API_KEY_k3v9x2mq}}", "kind": "API_KEY", "head": "sk-a", "len": 51 }]
+}
+```
+
+- `hits` has one entry per replacement, in text order; an empty array when nothing matched. `head` is the value's first two to four characters (never more than half), `len` its length in characters.
+
+Errors:
+
+- `400` invalid JSON body, or `text` missing
+- `404` `{"code": "plugin_disabled"}` when the privacy plugin is off
+- `413` text is larger than 256 KiB
+- `500` the privacy plugin is on but its manifest does not load
 
 Events: none.
 
