@@ -117,7 +117,7 @@ A wake object:
 `POST /v1/sessions/{id}/turns` and `POST /v1/sessions/{id}/messages` take the same input fields.
 
 - `prompt` (string). Required unless `attachments` is non-empty. Codex, Grok, pi and Claude also reject a prompt that is only whitespace.
-- `attachments` (array of strings, optional). Ids of images already stored for this conversation. Each id is 64 lowercase hex characters. At most 20 images, at most 40 MiB together. A model that does not accept images is rejected.
+- `attachments` (array of strings, optional). Ids of images already stored for this conversation. Each id is 64 lowercase hex characters. At most 20 images, at most 40 MiB together. A model that does not accept images (`images_supported: false`) is rejected. A model whose support is not confirmed accepts them, but its requests carry a text placeholder instead of each image.
 - `references` (array, optional). At most 64. Each object has `type`, `label` (at most 200 Unicode characters; may be `""`), and the fields for its type:
   - `file` or `directory`: `path`, an absolute path on the Core host inside this workspace. A file is a regular file. A directory is a directory.
   - `host_path`: `path`, an absolute path of a file or directory anywhere on the Core host. Optional `kind` is `file` or `directory` and must match. Core sets `outside_workspace`.
