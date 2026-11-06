@@ -221,7 +221,7 @@ Tool result:
 }
 ```
 
-`is_error` is always present. On input, `toolCallId`, `toolName`, and `isError` are accepted and stored under the snake_case names. `details` is omitted when empty; its shape depends on the tool.
+`is_error` is always present. On input, `toolCallId`, `toolName`, and `isError` are accepted and stored under the snake_case names. `details` is omitted when empty; its shape depends on the tool. `adjusted_input`, when present, is the arguments the call ran with after a BeforeTool hook rewrote them; the `tool_use` input stays what the model sent, and a client shows `adjusted_input` on the tool row instead. Optional; older Cores never send it.
 
 Content blocks carry only the fields of their `type`:
 

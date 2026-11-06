@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.115.1. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.115.2. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -8819,7 +8819,7 @@ Tool result:
 }
 ```
 
-`is_error` is always present. On input, `toolCallId`, `toolName`, and `isError` are accepted and stored under the snake_case names. `details` is omitted when empty; its shape depends on the tool.
+`is_error` is always present. On input, `toolCallId`, `toolName`, and `isError` are accepted and stored under the snake_case names. `details` is omitted when empty; its shape depends on the tool. `adjusted_input`, when present, is the arguments the call ran with after a BeforeTool hook rewrote them; the `tool_use` input stays what the model sent, and a client shows `adjusted_input` on the tool row instead. Optional; older Cores never send it.
 
 Content blocks carry only the fields of their `type`:
 
@@ -11769,7 +11769,7 @@ Every stored frame's `data` is one JSON object with a `type`. The opening frame 
 - `message.role` is `user`, `assistant`, or `tool_result`.
 - A user message is `role`, `content`, and optionally `provider_history` (`scope`, `output`, optional `memory_version`).
 - An assistant message adds `stop_reason`, `usage`, and `error_message` (`null` when there is none). Optional: `failure`, `provider_history`, `duration_ms`, `kind` (`compaction_summary`, `stopped`, `truncated`, `failed_attempt`), `fallback`.
-- A tool result message is `role`, `tool_call_id`, `tool_name`, `content`, `is_error`, and optional `details`.
+- A tool result message is `role`, `tool_call_id`, `tool_name`, `content`, `is_error`, optional `details`, and optional `adjusted_input` (the arguments that ran when a BeforeTool hook rewrote them; show these on the tool row instead of the `tool_use` input).
 - `content` items are tagged by `type`: `text` (`text`, optional `input_reference`), `image` (`data`, `mime_type`), `thinking` (`thinking`, `signature`), `redacted_thinking` (`data`), `tool_use` (`id`, `name`, `input` which is `null` when empty), `tool_result` (`tool_use_id`, `content`). Tool content is `text` plus `text`, or `image` plus `data` and `mime_type`.
 - `usage` is `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, and optional `cache_usage_reported`.
 - `turn` is omitted when the row is not on a journal turn. `status` is `running` until the turn finishes, then `completed`, `failed`, `cancelled`, or `interrupted`. `finished_at` is omitted while running.

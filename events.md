@@ -376,7 +376,7 @@ Every stored frame's `data` is one JSON object with a `type`. The opening frame 
 - `message.role` is `user`, `assistant`, or `tool_result`.
 - A user message is `role`, `content`, and optionally `provider_history` (`scope`, `output`, optional `memory_version`).
 - An assistant message adds `stop_reason`, `usage`, and `error_message` (`null` when there is none). Optional: `failure`, `provider_history`, `duration_ms`, `kind` (`compaction_summary`, `stopped`, `truncated`, `failed_attempt`), `fallback`.
-- A tool result message is `role`, `tool_call_id`, `tool_name`, `content`, `is_error`, and optional `details`.
+- A tool result message is `role`, `tool_call_id`, `tool_name`, `content`, `is_error`, optional `details`, and optional `adjusted_input` (the arguments that ran when a BeforeTool hook rewrote them; show these on the tool row instead of the `tool_use` input).
 - `content` items are tagged by `type`: `text` (`text`, optional `input_reference`), `image` (`data`, `mime_type`), `thinking` (`thinking`, `signature`), `redacted_thinking` (`data`), `tool_use` (`id`, `name`, `input` which is `null` when empty), `tool_result` (`tool_use_id`, `content`). Tool content is `text` plus `text`, or `image` plus `data` and `mime_type`.
 - `usage` is `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, and optional `cache_usage_reported`.
 - `turn` is omitted when the row is not on a journal turn. `status` is `running` until the turn finishes, then `completed`, `failed`, `cancelled`, or `interrupted`. `finished_at` is omitted while running.
