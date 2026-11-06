@@ -110,7 +110,7 @@ A wake object:
 }
 ```
 
-`note` is absent when empty. Times are UTC.
+`note` is absent when empty. `task_id` is present on a goal's wake: the id of the goal's [task](#get-v1sessionsidtask). Times are UTC.
 
 ## Message input
 
@@ -325,6 +325,169 @@ Errors:
 - `500` the goal could not be read
 
 Events: none.
+
+### GET /v1/sessions/{id}/task
+
+Auth: any key
+Effect: Returns the task behind this conversation's goal, or `null` when it has none. A goal is stored as a task: a durable work ticket whose first attempt is this conversation. `GET …/goal` shows the same goal in its own shape. Does not start or change a turn.
+
+Path: `id` conversation handle.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "task": {
+    "id": "018f3a2b-7c4d-7e5f-a6b7-8c9d0e1f2a3b",
+    "objective": "Ship the parser fix",
+    "has_completion": true,
+    "project_id": "",
+    "executor": "gyres",
+    "provider_id": "openai",
+    "model": "gpt-4.1",
+    "cwd": "/Users/me/work/parser",
+    "status": "active",
+    "budget": {},
+    "attempts": [
+      {"session": "2026-10-14T12-04-05_018f3a2b-7c4d-7e5f-a6b7-8c9d0e1f2a3b", "lane": "main", "started": "2026-10-14T12:04:05Z"}
+    ],
+    "initiator": "key_0c1d2e3f",
+    "goal": {"continuations": 0},
+    "created": "2026-10-14T12:04:05Z",
+    "updated": "2026-10-14T12:04:05Z"
+  },
+  "wake": null
+}
+```
+
+```json
+{"task": null}
+```
+
+- `id` is the goal's `id`. `objective` is the completion criterion; `has_completion` is true for a goal.
+- `project_id` is the conversation's project, `""` for none. `cwd` is its working directory when the goal was set.
+- `executor` is `gyres` (goals run on Core's own loop). `provider_id` and `model` are the goal's model, when it has one.
+- `status` is the goal's [status](#goal), or `cancelled` for a cleared goal that had not finished (no longer returned here).
+- `budget` has `max_attempts`, `max_iterations`, `max_days` and `daily_tokens` when set; a goal sets none.
+- `attempts` lists the conversations (handle split into `session` and `lane`) that worked on the task. An attempt that stopped has `ended` and `outcome` (`replaced`, `cleared`). For a goal, an attempt is a lane; tasks of other kinds (Core 0.114+: loops, Bot tasks) record each run as an attempt with `run`, `tokens` and an `outcome` of `completed`, `failed`, `cancelled` or `interrupted`, and an attempt whose conversation was deleted has `conversation_deleted: true`.
+- `initiator` is the id of the access key that set the goal, absent when unknown.
+- `goal` holds the goal's `continuations`, `reason`, `stopped_at`, `blocker`, `blocker_turns` and `blocker_this_turn`, as in `GET …/goal`.
+- `wake` is the goal's pending wait, as in `GET …/goal`.
+
+Errors:
+
+- `404` session not found
+- `500` the task could not be read
+
+Events: none.
+
+### GET /v1/tasks
+
+Auth: any key
+Effect: Lists every task (goals, loops, Bot tasks and standalone tasks), newest first. Core 0.114+.
+
+Query: `project_id` (optional) keeps the tasks of that project.
+
+Response: `200` `{"tasks": [ … ]}`, each task as in [`GET …/task`](#get-v1sessionsidtask), with these fields when set:
+
+- `notice`: the needs-attention condition Core last posted to the Bot for this task (`blocked`, `capped`, `usage_limited`, or `approval:` plus the attempt). Core posts each condition once (an approval wait once until it is answered).
+- `skips`: triggers that arrived while an attempt was running and were skipped, the newest 20: `{at, source, trigger}`, `source` being `schedule:<plan id>`, `schedule:<plan id> (run now)`, `bot_task` or `owner (advance now)`.
+- `reason`: why a standalone task is `capped`, `paused` or `cancelled` (for example `reached its budget of 3 attempt(s)`). `capped_until`: when a standalone task capped by its `daily_tokens` takes attempts again (the next local midnight).
+- `tokens_today` (always present): the tokens of the task's attempts started since local midnight, what `daily_tokens` measures. `next_wake`: the task's next wake, when it has one: its lane's goal or loop wake, else the next run of an active plan that advances it.
+- `project_name`: the Project's name (absent for global work or a Project that no longer exists). `initiator_name`: the initiator's readable name, the access key's name or, for `schedule:<plan id>`, the plan's. `plans`: the plans whose `task_id` is this task, `{id, name, state}` (standalone tasks).
+- A standalone task's attempt also has `source` (what started it: `schedule:<plan id>`, `owner` for a plan's "run now" or the board's advance, `bot_task`) and, for a scheduled attempt, `report` (`notify`, `quiet` or `complete`, what the run reported). Attempts recorded before Core 0.114 have neither.
+
+A plugin page may read these through its hook token: see [Tasks for plugin pages](#tasks-for-plugin-pages). A Bot task's `bot.result` is left out there, and the answer adds `projects`: the registered Projects, `[{id, name}]` (a page cannot read `GET /v1/projects`).
+
+Errors: `403` a hook token outside that grant; `503` tasks are not available; `500` the tasks could not be read.
+
+Events: none.
+
+### GET /v1/tasks/{id}
+
+Auth: any key
+Effect: Returns one task, as in `GET /v1/tasks`.
+
+Errors: `404` task not found; `503` tasks are not available.
+
+Events: none.
+
+### POST /v1/tasks
+
+Auth: any key; the Tasks board's [plugin page](#tasks-for-plugin-pages) hook token
+Effect: Creates a standalone task: a work ticket advanced only by attempts that a schedule with `task_id` ([Scheduled tasks](schedules.md)) or the Bot's `bot_task send` starts, each in a new conversation. Starts nothing by itself. Core 0.114+.
+
+Request:
+
+```json
+{
+  "title": "Weekly dependency check",
+  "objective": "Keep the parser's dependencies current; open a note when one has a security fix.",
+  "has_completion": false,
+  "project_id": "parser",
+  "cwd": "",
+  "provider_id": "",
+  "model": "",
+  "budget": {"max_attempts": 10}
+}
+```
+
+- `objective` (required, at most 64000 bytes): what the task is for; with `has_completion` true it is the completion criterion.
+- `title` (optional, at most 200 characters): defaults to the objective's first line, cut to 80 characters.
+- `project_id` (project id or name) and `cwd` (absolute directory on the Core host) bind the attempts' conversations; both empty uses a scratch directory.
+- `provider_id`/`model` as for schedules; an external agent (`local-claude`, …) needs `project_id` or `cwd` and its unattended use on. Empty uses the plan's model (a schedule) or the Bot's task model (`bot_task send`).
+- `budget` (each 0 = none): `max_attempts` (0 to 100000): after that many attempts the task becomes `capped`; `max_days` (0 to 365): `capped` once that many days have passed since it was created; `daily_tokens`: `capped` until the next local midnight once its attempts started today used that many tokens (`max_days` and `daily_tokens` Core 0.114+, from Phase 4). `max_iterations` is a loop's and is refused.
+
+Response: `200` the task: `id` (`tk_` plus 16 hex characters), `status` `waiting`, `attempts` `[]`, `initiator` the access key id.
+
+Statuses of a standalone task: `waiting` (between attempts), `active` (an attempt runs), `complete` (a scheduled attempt reported `complete` and `has_completion` is true; without a criterion the report only completes the plan), `capped` (a budget reached), `paused` and `cancelled` (the owner's [controls](#post-v1tasksidaction)). An attempt is `{session, lane, run, started, ended, outcome, tokens}` as for loops; one attempt runs at a time.
+
+When a task becomes `blocked`, `capped` or `usage_limited`, or one of its attempts waits on an approval, Core posts one notice into the Bot main chat and forwards it to the chat channel the owner wrote from most recently (none configured: the main chat only). A `failed` task gets no notice.
+
+Errors: `400` invalid body, missing objective, unknown project, invalid `cwd`, invalid budget, unavailable model or agent; `503` tasks are not available.
+
+Events: none.
+
+### POST /v1/tasks/{id}/{action}
+
+Auth: any key; a [plugin page](#tasks-for-plugin-pages)'s hook token
+Effect: The owner's control of a task, `action` being `pause`, `resume`, `advance` (start its next step now) or `cancel`, carried out by the task kind's own driver. Core 0.114+.
+
+- **Goal**: `pause`, `resume` and `cancel` are the goal API's `pause`, `resume` and `clear` in the lane where the goal is current (`409` when it is no longer current anywhere). `advance` fires a pending `wait_goal` wake now, else starts the next goal turn when the lane is idle (`409` while a run is going or the goal is not active).
+- **Loop**: the loop plugin's own `set` (`status` `paused`/`active`) and `stop` tools in the loop's conversation, approved as the owner's control (resolver `owner:tasks`); `cancel` stops the loop (`complete`, reason `stopped by the owner from Tasks`). `advance` moves the pending check to now (a pre-check still runs first); `409` when the loop is not active or has no check pending, or the loop plugin refuses (its text is the error).
+- **Bot task**: `pause`, `resume` and `cancel` are `/v1/bot/tasks/{id}/pause|resume|stop` (only while it runs); `advance` is `409`.
+- **Standalone**: `pause` sets `paused` (a running attempt finishes) and pauses the active plans that advance it, with reason `its Task is paused`; `resume` makes it `waiting` again (`active` while an attempt still runs), `409` while a budget is still used up, and resumes the plans Core paused for it (reasons starting `its Task is paused` or `its Task is capped: `); `cancel` sets `cancelled`, completes its plans and stops a running attempt; `advance` runs its first active plan now ("run now"), `409` when the task cannot take an attempt, an attempt is running (recorded in `skips` as `owner (advance now)`) or no plan advances it.
+
+Request: no body.
+
+Response: `200` the task as in `GET /v1/tasks/{id}`.
+
+Errors: `400` not applicable to the kind; `403` a hook token outside the grant; `404` task not found or unknown action; `409` refused (the message says why); `503` tasks are not available.
+
+Events: those of the driver (`goal_updated`, `session.wake`, `schedules.changed`, …).
+
+### PUT /v1/tasks/{id}/budget
+
+Auth: any key; a [plugin page](#tasks-for-plugin-pages)'s hook token
+Effect: Replaces a task's budget. Core 0.114+.
+
+Request: `{"max_attempts": 0, "max_iterations": 0, "max_days": 0, "daily_tokens": 0}` (unknown fields refused).
+
+- **Standalone**: `max_attempts`, `max_days` and `daily_tokens` as in `POST /v1/tasks` (`max_iterations` refused). A `waiting` or `capped` task is measured against the new budget at once: a raised budget makes a capped task `waiting` and resumes the plans Core paused for it.
+- **Loop**: `max_iterations`, `max_days` and `daily_tokens` through the loop plugin's `set` tool (its own rules: `max_days` 1 to 365); `max_attempts` refused.
+- **Goal** (`400`: its budget is the task limits' `goal_max_continuations`) and **Bot task** (`400`: one run) have none.
+
+Response: `200` the task as in `GET /v1/tasks/{id}`.
+
+Errors: as for `POST /v1/tasks/{id}/{action}`.
+
+Events: as for `POST /v1/tasks/{id}/{action}`.
+
+### Tasks for plugin pages
+
+A hook token reaches `GET /v1/tasks`, `GET /v1/tasks/{id}`, `POST /v1/tasks/{id}/{pause|resume|advance|cancel}` and `PUT /v1/tasks/{id}/budget` only when its invocation is a tool call from the page of a **bundled** plugin (`POST /v1/plugins/{name}/tools/{tool}` without `session_id`, run in the Bot main chat, the owner's click or page load). Any other hook token, including one of the same plugin from a model's call or a panel in another conversation, gets `403`. Only the bundled `tasks` plugin's page (the Tasks board) may also `POST /v1/tasks`; its task's `initiator` is the access key that made the page call. Core 0.114+.
 
 ### GET /v1/wakes
 
@@ -842,6 +1005,61 @@ Errors:
 - `503` wakes are unavailable
 
 Events: `session.wake`.
+
+### GET /v1/sessions/{id}/loop
+
+Auth: any key, hook token (own lane)
+Effect: Returns the lane's loop (the loop plugin's state, docs/loop.md "State"), kept on the lane's loop task, or `null`. A loop file an older Core kept in the conversation's work directory becomes the task on this first read. Core 0.114+.
+
+Path: `id` conversation handle.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{"loop": {"version": 1, "id": "lp_0c1d2e3f40516273", "goal": "CI on main is green", "status": "active", "iteration": 2, "cap": 200, "max_days": 14, "daily_tokens": 5000000, "started_at": "2026-10-14T12:04:05Z", "updated_at": "2026-10-14T12:09:05Z", "next_wake_at": "2026-10-14T12:14:05Z", "wake_id": "wk_0c1d2e3f405162738495a6b7", "last_note": "build 41 running", "last_delay_seconds": 300, "last_run": "task_0c1d2e3f"}, "task_id": "lp_0c1d2e3f40516273"}
+```
+
+```json
+{"loop": null}
+```
+
+- `loop.status` is `active`, `paused`, `stopped`, `capped` or `expired`.
+- `task_id` is the loop's task (`GET …/task` shows the lane's goal task only).
+
+Errors:
+
+- `404` session not found
+- `500` the loop could not be read
+- `503` tasks are unavailable
+
+Events: none.
+
+### PUT /v1/sessions/{id}/loop
+
+Auth: administrator key, hook token (own lane)
+Effect: Stores the lane's loop (the loop plugin's write). A loop with a new `id` is a new loop task whose first attempt is the hook token's run; an unfinished loop it replaces ends cancelled. Core 0.114+.
+
+Path: `id` conversation handle.
+
+Request:
+
+```json
+{"loop": {"version": 1, "id": "lp_0c1d2e3f40516273", "goal": "CI on main is green", "status": "active", "iteration": 1, "cap": 200, "max_days": 14, "daily_tokens": 5000000, "started_at": "2026-10-14T12:04:05Z", "updated_at": "2026-10-14T12:04:05Z"}}
+```
+
+Response: `200` `{"loop": {…}, "task_id": "lp_0c1d2e3f40516273"}` with the stored loop.
+
+Errors:
+
+- `400` no loop, an invalid id, or an id that is another lane's loop
+- `403` administrator key required
+- `404` session not found
+- `500` the loop could not be read
+- `503` tasks are unavailable
+
+Events: none.
 
 ### DELETE /v1/sessions/{id}/wake
 
