@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.116.1. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.117.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -3068,10 +3068,10 @@ Response: `200`
 - `commands` are the plugin's slash commands (empty when none): `name`, `description`, optional `descriptions` (by language tag, such as `zh` or `zh-Hant`), `argument_hint`, `argument_hints` and `subcommands` (`name`, `description`, `descriptions`, `takes_argument`). A command is sent as an ordinary message, `/<name> <text>`, in a conversation where the plugin runs; list them in your `/` menu for Gyres conversations (not external agents).
 - `handlers` are the plugin's hooks. `id` is `name/` plus the id from the plugin. A command argument that was written `./...` is an absolute path. `mode` is `command` (one process per event) or `process` (one long-lived process). `timeout_ms` and `on_error` (`continue` or `stop`) are filled in when omitted in the file. `env` is present only when the handler has environment keys, and every value is `""`. `tool`, `slash`, `project`, `source`, `purpose` and `executor` appear only when set. Setting values are not included.
 - `skills` is empty when the plugin has no skills directory. Each `path` is that skill's file.
-- `tools` is what the plugin declares. `name` is `plugin.tool` (the name people see). `model_name` is `plugin__tool` (the name a model calls). The path of `POST /v1/plugins/{name}/tools/{tool}` uses the short tool name, `look` in the example, not `name` or `model_name`. `side_effect` is `read` or `write` (`write` when omitted). `replay` is `safe`, `never`, `interrupt`, or `""`. `handler` is the namespaced handler id. The argument schema is not included.
+- `tools` is what the plugin declares. `name` is `plugin.tool` (the name people see). `model_name` is `plugin__tool` (the name a model calls). The path of `POST /v1/plugins/{name}/tools/{tool}` uses the short tool name, `look` in the example, not `name` or `model_name`. `side_effect` is `read` or `write` (`write` when omitted). `replay` is `safe`, `never`, `interrupt`, or `""`. `handler` is the namespaced handler id. `settings_page` is present and `true` for a tool that serves the plugin's settings page only: Core never offers it to a model, and only an administrator key may call it. The argument schema is not included.
 - `mcp` is the servers the plugin declares. `transport` is `stdio` or `http`. `env` and `headers` are sorted names only (`null` when there are none); values are never included. `args` is an array, or `null` when omitted.
 - `settings` is the declared list, which may be empty. `type` is `string`, `number`, `boolean` or `enum`. `secret`, `label`, `description` and `required` are always present. `default` and `options` are present only when declared (`options` is for `enum`). A secret has `set` (boolean) and never `value`. A non-secret has `value` only when a value is currently in force.
-- `web` is `null` when the plugin has no pages. Otherwise it has the keys that are declared: `panel` and `widget` are paths such as `ui/panel.html`, and `page` is `{ "file", "title", "icon", "titles"?, "badge"?, "show_at_zero"? }`. `icon` is `alert`, `inbox`, `list`, `chart`, `bell`, `book`, `flag` or `puzzle`. `titles` maps a language tag such as `zh` to a title. `badge` names one of the plugin's own read tools. `send` is present and `true` when the panel may send a message into its conversation (`POST /v1/plugins/{name}/send`).
+- `web` is `null` when the plugin has no pages. Otherwise it has the keys that are declared: `panel` and `widget` are paths such as `ui/panel.html`, and `page` is `{ "file", "title", "icon", "titles"?, "badge"?, "show_at_zero"? }`. `icon` is `alert`, `inbox`, `list`, `chart`, `bell`, `book`, `flag` or `puzzle`. `titles` maps a language tag such as `zh` to a title. `badge` names one of the plugin's own read tools. `settings` is `{ "file", "title", "titles"? }`: a page shown as a tab of the plugin's detail in Settings → Plugins. `send` is present and `true` when the panel may send a message into its conversation (`POST /v1/plugins/{name}/send`).
 - `installed` is present only for a plugin installed from these routes (`source` of the plugin is `plugin`). `source` inside it is `git`, `path` or `archive`. `url` has no user name, password, query or fragment. `ref_kind` is `branch`, `tag`, `commit`, or absent when the fetch did not say. `commit` is the full commit hash. `sha256` is present for an archive and is the hex digest of the zip. `pinned` is present when true. `installed_at` is UTC, to the second. `update`, when present, is the last check: `checked_at`, `available`, and `remote_commit` when one was seen. A later install clears it.
 
 Errors:
@@ -3367,7 +3367,7 @@ Events: `plugins.changed` on success.
 
 ### POST /v1/plugins/{name}/tools/{tool}
 
-Auth: any key
+Auth: any key; an administrator key for a tool with `settings_page` true
 Effect: Runs one tool declared by that plugin, as a click in the plugin's own page. The call is checked against the tool schema and recorded as approved, with no approval card. The tool's own failure is `200` with `result.is_error` true. A failure before the tool runs is an HTTP error.
 
 Path: `name` plugin name. `tool` the short tool name (`look`), not `plugin.tool` and not `plugin__tool`.
@@ -3417,6 +3417,7 @@ Errors:
 - `409` the Bot is unavailable
 - `409` the conversation's directory is unavailable, or the workspace or the hook table cannot be prepared (the message says which)
 - `409` when approvals are not running, the conversation binding or the tool access check failed (the message is that error)
+- `403` `an administrator key is required`: the tool has `settings_page` true and the key is not an administrator's
 - `403` a hook rejected the call, or the call was not approved. An approval refusal starts with `approval refused`
 - `429` too many plugin page calls at once; retry shortly
 - `499` the client closed the request while approval was in progress
