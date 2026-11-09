@@ -629,7 +629,7 @@ Events: none.
 ### POST /v1/sessions/{id}/turns
 
 Auth: any key (administrator key when this turn uses Codex, Grok, pi or Claude and that agent does not allow non-administrators)
-Effect: Starts one turn and returns its run stream. The turn is accepted before the stream is attached. Closing the response does not stop it. Reattach with `GET /v1/sessions/{id}/events`. The request is not idempotent: after an ambiguous failure, read the conversation before sending again. Sending `provider_id` and `model` stores them as this conversation's model when that choice differs from the saved one.
+Effect: Starts one turn and returns its run stream. The turn is accepted before the stream is attached. Closing the response does not stop it. Reattach with `GET /v1/sessions/{id}/events`. Without `idempotency_key` the request is not idempotent: after an ambiguous failure, read the conversation before sending again. With one, a repeat of an accepted send starts nothing (below). Sending `provider_id` and `model` stores them as this conversation's model when that choice differs from the saved one.
 
 Path: `id` conversation handle.
 
@@ -643,7 +643,8 @@ Request:
   "cwd": "/work/app",
   "attachments": ["0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"],
   "references": [{"type": "file", "path": "/work/app/parser.go", "label": "parser"}],
-  "input_placements": [{"marker": "@parser", "type": "reference", "index": 0}]
+  "input_placements": [{"marker": "@parser", "type": "reference", "index": 0}],
+  "idempotency_key": "send-0f3c9a2e"
 }
 ```
 
@@ -654,6 +655,7 @@ Request:
 - `system_prompt` (string, optional) replaces the default style for a provider model. A blank value keeps the default. A Bot conversation ignores it. Codex, Grok, pi and Claude reject a non-empty value.
 - `context_settings` (object, optional) is rejected for Codex, Grok, pi and Claude. For a provider model, `context_window` is an integer from 4096 to 10000000. `output_reserve`, `keep_recent_tokens`, `summary_max_tokens` and `threshold_tokens` are optional integers; omitted or 0 uses 4096, 20000, 2048, and `context_window - output_reserve`. The summary must fit in the output reserve, recent messages must fit under the threshold, and the threshold must leave the output reserve inside the window.
 - `max_turns` (integer, optional) caps steps of this task. When a global cap is enabled, a missing or higher value is lowered to that cap. A lower value is kept.
+- `idempotency_key` (string, optional) is chosen by the client, one per send, at most 128 bytes; Core keeps it in the turn's task record. When the conversation's latest task record carries the same key and was updated within the last 10 minutes, nothing new starts (the body is still decoded, so invalid JSON is `400`, but only the key is compared, not the prompt or other fields): while that run is live the response is its run stream (`200`, from the snapshot, as for the first POST); otherwise `409` `duplicate_request` (below). A different key, or none, is a new send. The key is ignored when task records are not kept. Retry a POST whose connection failed before any answer with the same key.
 
 Response: `200` `text/event-stream`
 
@@ -662,6 +664,7 @@ Same headers, heartbeats and frames as `GET /v1/sessions/{id}/events`. This resp
 Errors:
 
 - `400` invalid json
+- `400` `idempotency_key is longer than 128 bytes`
 - `400` missing prompt
 - `400` the prompt, references, attachments or placements were rejected. Stable messages include `unknown reference type`, `at most 64 references`, `reference label too long`, `too many input placements`, `invalid or duplicated input marker`, `invalid reference placement`, `invalid image placement`, `invalid input placement type`, `A message can contain at most 20 images`, `Images in one message exceed the 40 MiB limit`, `Invalid attachment ID`, `Image attachment not found`, `The selected model does not support images; remove the images or choose another model`
 - `400` unknown or unconfigured model, or `missing endpoint or model`
@@ -696,6 +699,14 @@ Errors:
 ```json
 {"error":"stopped before the turn started","code":"turn_stopped"}
 ```
+
+- `409` the same `idempotency_key` was already accepted and its run is no longer live. Nothing was started. The body is not the usual error envelope:
+
+```json
+{"error":"this request was already accepted","code":"duplicate_request","task_id":"task_0123456789abcdef0123456789abcdef","state":"completed"}
+```
+
+`task_id` is the task that request started and `state` its task state. Read the conversation instead of sending again.
 
 - `500` the turn could not be saved or the progress stream could not be created (`cannot create progress stream`, `cannot read task limits: …`)
 - `503` `storage unavailable; reconnect and retry`, or `Core is moving its data directory; try again when it finishes`

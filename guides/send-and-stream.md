@@ -38,7 +38,7 @@ data: {"type":"result","session_id":"2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd
 id: 780
 ```
 
-The turn is accepted before the stream is attached. The call is not idempotent: after an ambiguous failure, `GET /v1/sessions/{id}` before you send again. Core also emits `session.run_started`, and when the turn ends `session.run_finished`, on `GET /v1/events`.
+The turn is accepted before the stream is attached. Send a fresh `idempotency_key` with each send and retry a POST whose connection failed before any answer once with the same key: a repeat of an accepted send starts nothing (its live run stream, or `409` `duplicate_request`; [POST /turns](../http/runs.md#post-v1sessionsidturns)). Without a key the call is not idempotent: after an ambiguous failure, `GET /v1/sessions/{id}` before you send again. Core also emits `session.run_started`, and when the turn ends `session.run_finished`, on `GET /v1/events`.
 
 ## 2. Render the frames
 
