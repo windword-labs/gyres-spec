@@ -153,8 +153,9 @@ A wake object:
 - `image_count` (number) is present only when the message has images.
 - `delivering` (true) is present only while this message is being handed to the live turn. It cannot be deleted or reordered then.
 - `held` (true) and `held_until` (UTC, to the second) are present only while an edit hold is active. See `hold`.
+- `not_sent` (true) is present when the task this message was queued into failed or was stopped before sending it. Nothing sends it by itself: the next turn started in the conversation (`POST …/turns`, or `send-now` on it) sends the not-sent messages first, in this order, before its own prompt, as one user message. Goal turns and loop wakes do not take them and are refused with `409` while they wait. Only messages a person sent wait like this; input from the Bot or a plugin ends with its failed task. The list survives a restart.
 - `executor` is `native` (Gyres), `codex`, `grok`, `pi`, `claude` or `cursor`.
-- `actions.edit` and `actions.front` are true. `actions.insert` and `actions.send_now` are true only while a turn is live (not while it is still preparing). For Grok, `insert` is true only when that turn can take text immediately.
+- `actions.edit` and `actions.front` are true. `actions.insert` and `actions.send_now` are true only while a turn is live (not while it is still preparing). For Grok, `insert` is true only when that turn can take text immediately. For `not_sent` messages `send_now` is true and `insert` false.
 - `insert_note` is `""`, or `grok_timing_not_guaranteed` for Grok: Grok decides when inserted text is used.
 
 A hold lasts 2 minutes and is kept only in memory. Another `hold` refreshes it. Delivery does not pass a held message at the front of the queue. `release`, a successful edit, or expiry clears it. A restart drops every hold.
@@ -262,7 +263,7 @@ Events: none.
 ### GET /v1/sessions/{id}/pending-messages
 
 Auth: any key
-Effect: Lists messages waiting to enter the running turn, or still waiting on a task that can be continued. While a turn is preparing, the list is what is already queued and `insert` and `send_now` are false.
+Effect: Lists messages waiting to enter the running turn, still waiting on a task that can be continued, or not sent because their task failed or was stopped (`not_sent`). While a turn is preparing, the list is what is already queued and `insert` and `send_now` are false.
 
 Path: `id` conversation handle.
 
@@ -867,7 +868,8 @@ Effect: Holds, reorders, or sends one waiting message. `{op}` is `hold`, `releas
 - `release` clears the hold. It succeeds even when the message is already gone.
 - `front` moves the message to the front and keeps its `mode`.
 - `insert` requires a live turn. On Gyres, Codex, pi and Claude it moves the message to the front and sets `mode` to `steer`, so it enters at the next step without stopping the turn. On Grok it hands the text to the running turn; Grok decides when to use it, and the message leaves the list only once Grok accepts it. Images, or anything that is not text, cannot be inserted into Grok.
-- `send-now` requires a live turn. The message moves to the front. On Gyres the current step is asked to stop, without ending the turn, and the message is delivered next. On Codex, Grok, pi and Claude the current turn is interrupted and the message waits at the front as `queue` so it is sent when that interruption lands.
+- `send-now` on a `not_sent` message, with nothing running, moves it to the front and starts a turn on the conversation's saved model that sends every not-sent message, this one first, and nothing else. The response is the list as it was before that turn took them; follow the turn on `GET …/run` or `GET /v1/events`. A refusal to start (for example `409 turn already running`) leaves the messages listed.
+- Otherwise `send-now` requires a live turn. The message moves to the front. On Gyres the current step is asked to stop, without ending the turn, and the message is delivered next. On Codex, Grok, pi and Claude the current turn is interrupted and the message waits at the front as `queue` so it is sent when that interruption lands.
 
 `front`, `insert` and `send-now` are refused while this message is held, or while another message is being delivered.
 
@@ -888,7 +890,8 @@ Errors:
 - `409` message is being edited — `front`, `insert` or `send-now` on a held message
 - `409` another message is being delivered
 - `409` no active turn to insert into
-- `409` no active turn to stop — `send-now` when nothing is live
+- `409` no active turn to stop — `send-now` when nothing is live and the message is not `not_sent`
+- `send-now` on a `not_sent` message also returns the errors of `POST …/turns` when the turn cannot start
 - `500` the change could not be saved
 - `502` Grok did not accept the inserted text. The message stays pending.
 

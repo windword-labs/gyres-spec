@@ -867,7 +867,7 @@ Refetch: nothing. Show that the context is being compacted until `compaction_end
 
 ### compaction_end
 
-The compaction announced by `compaction_start` finished. `ok` is false when it failed; the run then usually ends with an error in `result`. No summary text is sent.
+The compaction announced by `compaction_start` finished. `ok` is false when it failed; the run then usually ends with an error in `result`. `truncated` is true (and otherwise absent) when the summary request failed and earlier messages were left out of the context without a summary instead; the run continues. No summary text is sent.
 
 ```json
 { "type": "compaction_end", "ok": true }
