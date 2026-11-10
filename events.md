@@ -759,7 +759,8 @@ The conversation's goal was created, replaced, paused, completed, blocked, or st
 }
 ```
 
-- `status` is `active`, `paused`, `blocked`, `complete`, `usage_limited`, or `capped`.
+- `status` is `active`, `paused`, `blocked`, `complete`, `usage_limited`, `capped`, or `budget_limited`.
+- `token_budget` is present when the goal has a token budget; `tokens_used` is its tokens so far (input plus output, cache not counted), always present on Core 0.119+. A goal with a budget sends this frame again as each turn ends.
 - `provider_id` and `model` are omitted when the goal has no model of its own.
 - `reason` and `stopped_at` are set when the goal stopped continuing, and cleared when it is active again.
 - `blocker`, `blocker_turns`, and `blocker_this_turn` describe a blocker report. Omitted when unset. `blocker_turns` is omitted at 0.

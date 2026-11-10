@@ -83,11 +83,13 @@ records (`<data>/tasks/claims.jsonl`) carry `claim_started`,
 
 ## Goal
 
-`status` is `active`, `paused`, `blocked`, `complete`, `usage_limited` or `capped`.
+`status` is `active`, `paused`, `blocked`, `complete`, `usage_limited`, `capped` or `budget_limited`.
 
 An `active` goal keeps starting another turn after a turn that finishes normally, up to the goal continuation cap (`goal_max_continuations` of `GET /v1/task-limits`, 100 by default; `continuations` counts those). The owner stopping a turn leaves the goal as it is. A turn that fails becomes `blocked`, or `usage_limited` when the failure is a provider usage limit. Reaching the cap becomes `capped` with `reason` `<cap> automatic continuations`. `resume`, and an edit that starts the goal again, set `continuations` back to 0. They do not spend one.
 
 `pause` does not stop a turn that is already running. That turn finishes, and no further goal turn starts until `resume`. `clear` removes the goal and also leaves a running turn alone.
+
+A goal may have a token budget (`token_budget`, none by default; set with `set` or `budget` of `POST …/goal`, or `PUT /v1/tasks/{id}/budget`). `tokens_used` is the input plus output tokens of the conversation lane's model requests since the goal was set (cache reads and writes are not counted), as in the [usage records](usage.md); subagent conversations are not counted. Core measures it before every goal turn starts, at each step of a running turn and when a turn ends. An `active` or `paused` goal that has used its budget becomes `budget_limited` with `reason` `used <tokens_used> of its token budget of <token_budget>`: no further goal turn starts, and a turn still running is not stopped but is told to wrap up (its next step gets a wrap-up note once; a turn that just gave its final answer gets none, nor does a goal whose budget was raised again meanwhile). `budget_limited` takes precedence over `paused`: `pause` leaves it as it is. `resume` and an edit do not start it again while the budget is used up (`resume` answers `409`); raising the budget above `tokens_used`, or clearing it, makes it `active` with the same reset as `resume` and starts a turn when the conversation is idle. Lowering the budget to `tokens_used` or below makes an `active` goal `budget_limited` at once.
 
 The first turn of a newly set goal shows `objective` as the owner's message. Later goal turns are hidden continuation turns.
 
@@ -315,7 +317,8 @@ Response: `200`
 - `objective` is the text the owner set.
 - `status` and `continuations` are [Goal](#goal).
 - `provider_id` and `model` are present when the goal was given a model. Its turns use that model.
-- `reason` and `stopped_at` are present when the goal stopped continuing (`blocked`, `usage_limited`, `capped`). Both are cleared when it is `active` again.
+- `reason` and `stopped_at` are present when the goal stopped continuing (`blocked`, `usage_limited`, `capped`, `budget_limited`). Both are cleared when it is `active` again.
+- `token_budget` is present when the goal has a [token budget](#goal). `tokens_used` (always present) is its tokens as Core last measured them; Core 0.119+.
 - `blocker` and `blocker_turns` are present while a blocker is being counted. `blocker_this_turn` is true when the turn still running has reported one.
 - `created` and `updated` are UTC.
 
@@ -371,10 +374,10 @@ Response: `200`
 - `project_id` is the conversation's project, `""` for none. `cwd` is its working directory when the goal was set.
 - `executor` is `gyres` (goals run on Core's own loop). `provider_id` and `model` are the goal's model, when it has one.
 - `status` is the goal's [status](#goal), or `cancelled` for a cleared goal that had not finished (no longer returned here).
-- `budget` has `max_attempts`, `max_iterations`, `max_days` and `daily_tokens` when set; a goal sets none.
+- `budget` has `max_attempts`, `max_iterations`, `max_days` and `daily_tokens` when set; a goal sets only `token_budget`, its [token budget](#goal), when it has one.
 - `attempts` lists the conversations (handle split into `session` and `lane`) that worked on the task. An attempt that stopped has `ended` and `outcome` (`replaced`, `cleared`). For a goal, an attempt is a lane; tasks of other kinds (Core 0.114+: loops, Bot tasks) record each run as an attempt with `run`, `tokens` and an `outcome` of `completed`, `failed`, `cancelled` or `interrupted`, and an attempt whose conversation was deleted has `conversation_deleted: true`.
 - `initiator` is the id of the access key that set the goal, absent when unknown.
-- `goal` holds the goal's `continuations`, `reason`, `stopped_at`, `blocker`, `blocker_turns` and `blocker_this_turn`, as in `GET …/goal`.
+- `goal` holds the goal's `continuations`, `tokens_used` (omitted at 0), `reason`, `stopped_at`, `blocker`, `blocker_turns` and `blocker_this_turn`, as in `GET …/goal`.
 - `wake` is the goal's pending wait, as in `GET …/goal`.
 
 Errors:
@@ -456,7 +459,7 @@ Events: none.
 Auth: any key; a [plugin page](#tasks-for-plugin-pages)'s hook token
 Effect: The owner's control of a task, `action` being `pause`, `resume`, `advance` (start its next step now) or `cancel`, carried out by the task kind's own driver. Core 0.114+.
 
-- **Goal**: `pause`, `resume` and `cancel` are the goal API's `pause`, `resume` and `clear` in the lane where the goal is current (`409` when it is no longer current anywhere). `advance` fires a pending `wait_goal` wake now, else starts the next goal turn when the lane is idle (`409` while a run is going or the goal is not active).
+- **Goal**: `pause`, `resume` and `cancel` are the goal API's `pause`, `resume` and `clear` in the lane where the goal is current (`409` when it is no longer current anywhere; `resume` also `409` for a `budget_limited` goal whose budget is still used up). `advance` fires a pending `wait_goal` wake now, else starts the next goal turn when the lane is idle (`409` while a run is going or the goal is not active).
 - **Loop**: the loop plugin's own `set` (`status` `paused`/`active`) and `stop` tools in the loop's conversation, approved as the owner's control (resolver `owner:tasks`); `cancel` stops the loop (`complete`, reason `stopped by the owner from Tasks`). `advance` moves the pending check to now (a pre-check still runs first); `409` when the loop is not active or has no check pending, or the loop plugin refuses (its text is the error).
 - **Bot task**: `pause`, `resume` and `cancel` are `/v1/bot/tasks/{id}/pause|resume|stop` (only while it runs); `advance` is `409`.
 - **Standalone**: `pause` sets `paused` (a running attempt finishes) and pauses the active plans that advance it, with reason `its Task is paused`; `resume` makes it `waiting` again (`active` while an attempt still runs), `409` while a budget is still used up, and resumes the plans Core paused for it (reasons starting `its Task is paused` or `its Task is capped: `); `cancel` sets `cancelled`, completes its plans and stops a running attempt; `advance` runs its first active plan now ("run now"), `409` when the task cannot take an attempt, an attempt is running (recorded in `skips` as `owner (advance now)`) or no plan advances it.
@@ -474,11 +477,12 @@ Events: those of the driver (`goal_updated`, `session.wake`, `schedules.changed`
 Auth: any key; a [plugin page](#tasks-for-plugin-pages)'s hook token
 Effect: Replaces a task's budget. Core 0.114+.
 
-Request: `{"max_attempts": 0, "max_iterations": 0, "max_days": 0, "daily_tokens": 0}` (unknown fields refused).
+Request: `{"max_attempts": 0, "max_iterations": 0, "max_days": 0, "daily_tokens": 0, "token_budget": 0}` (unknown fields refused).
 
-- **Standalone**: `max_attempts`, `max_days` and `daily_tokens` as in `POST /v1/tasks` (`max_iterations` refused). A `waiting` or `capped` task is measured against the new budget at once: a raised budget makes a capped task `waiting` and resumes the plans Core paused for it.
-- **Loop**: `max_iterations`, `max_days` and `daily_tokens` through the loop plugin's `set` tool (its own rules: `max_days` 1 to 365); `max_attempts` refused.
-- **Goal** (`400`: its budget is the task limits' `goal_max_continuations`) and **Bot task** (`400`: one run) have none.
+- **Standalone**: `max_attempts`, `max_days` and `daily_tokens` as in `POST /v1/tasks` (`max_iterations` and `token_budget` refused). A `waiting` or `capped` task is measured against the new budget at once: a raised budget makes a capped task `waiting` and resumes the plans Core paused for it.
+- **Loop**: `max_iterations`, `max_days` and `daily_tokens` through the loop plugin's `set` tool (its own rules: `max_days` 1 to 365); `max_attempts` and `token_budget` refused.
+- **Goal**: `token_budget` only (0 or omitted clears it), as the goal API's `budget` action (Core 0.119+; earlier `400`). Any other field is `400`: its continuation cap is the task limits' `goal_max_continuations`.
+- **Bot task** (`400`: one run) has none.
 
 Response: `200` the task as in `GET /v1/tasks/{id}`.
 
@@ -923,16 +927,18 @@ Request:
   "objective": "Ship the parser fix",
   "replace": false,
   "provider_id": "openai",
-  "model": "gpt-4.1"
+  "model": "gpt-4.1",
+  "token_budget": 500000
 }
 ```
 
-- `action` (string) is `set`, `edit`, `pause`, `resume` or `clear`. Letter case and surrounding whitespace do not matter.
+- `action` (string) is `set`, `edit`, `budget`, `pause`, `resume` or `clear`. Letter case and surrounding whitespace do not matter.
 - `objective` (string) is required for `set` and `edit`, after surrounding whitespace is removed. Ignored for the other actions.
 - `replace` (boolean) applies to `set`. When an unfinished goal exists, `true` completes it and stores the new one. `false` or omitted answers `409` and leaves the current goal.
 - `provider_id` and `model` (strings, optional) apply to `set`. Omit both to use the conversation's model. They are stored on the goal and used for its turns. An external-agent model is rejected.
+- `token_budget` (integer, 0 or more) is the goal's [token budget](#goal): optional for `set` (0 or omitted: none), required for `budget`, where 0 clears it. Core 0.119+.
 
-`pause` sets `paused`. `resume` sets `active`, clears `continuations`, `reason`, `stopped_at` and the blocker fields, and starts a turn when the conversation is idle. `clear` removes the goal. `edit` changes `objective`. A `complete`, `blocked`, `usage_limited` or `capped` goal becomes `active` again, with the same reset as `resume`. A `paused` goal stays `paused` and does not start a turn. An `active` goal whose objective did not change does not start or steer a turn.
+`budget` sets or clears the token budget of the current goal; see [Goal](#goal) for how it starts or stops the goal. `pause` sets `paused` (a `budget_limited` goal stays `budget_limited`). `resume` sets `active`, clears `continuations`, `reason`, `stopped_at` and the blocker fields, and starts a turn when the conversation is idle. `clear` removes the goal. `edit` changes `objective`. A `complete`, `blocked`, `usage_limited` or `capped` goal becomes `active` again, with the same reset as `resume`. A `paused` goal stays `paused` and does not start a turn. An `active` goal whose objective did not change does not start or steer a turn.
 
 Response: `200`
 
@@ -958,10 +964,12 @@ Errors:
 
 - `400` invalid json
 - `400` missing objective
+- `400` missing token_budget — `budget` without it; `token_budget must be 0 or more`
 - `400` unknown action
 - `400` `<Label> does not use Gyres goals` when `provider_id` is Codex, Grok, pi or Claude
 - `404` session not found
-- `404` no goal — `edit`, `pause` or `resume` when there is none
+- `404` no goal — `edit`, `budget`, `pause` or `resume` when there is none
+- `409` the goal used its token budget — `resume` of a `budget_limited` goal whose budget is still used up
 - `409` `<Label> does not use Gyres goals` when this conversation already runs on Codex, Grok, pi or Claude
 - `409` an unfinished goal already exists. The body is not the usual error envelope. `goal` is the current goal:
 
