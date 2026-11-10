@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.119.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.120.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -8905,6 +8905,46 @@ Errors:
 - `500` the list could not be read
 
 Events: none.
+
+### GET /v1/external-summary
+
+Auth: any key
+Effect: Summarises this Core's live external-agent conversations for a status view, for example a client connected to another Core showing what this one is doing. The conversations are those of `GET /v1/sessions` whose stored model belongs to an external agent (provider ids in [External agents](#external-agents)). No message content is returned beyond the title the conversation list shows.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "counts": { "needs_you": 1, "running": 1, "idle": 3, "total": 5 },
+  "conversations": [
+    {
+      "session_id": "2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd-ef0123456789",
+      "title": "Fix the flaky upload test",
+      "agent": { "id": "codex", "label": "Codex" },
+      "project": { "id": "demo", "name": "Demo" },
+      "state": "needs_you",
+      "attention": "approval",
+      "updated": "2026-10-14T12:30:00.000Z"
+    }
+  ]
+}
+```
+
+- `state` is `needs_you` (a tool approval is pending, or the latest run ended after the conversation was last seen: the live row's `unseen`), `running` (a run is in progress), or `idle`. A conversation that is running with a pending approval or an earlier unseen result is `needs_you`.
+- `attention`, only on `needs_you`: `approval`, or the `unseen` value (`result`, `failed`).
+- `title` is the conversation list's title: the custom title, else a scheduled run's plan name, else the first message on one line, cut to 42 characters.
+- `agent.id` is the external agent's executor (`codex`, `grok`, `pi`, `claude`, `cursor`, `dsh`); `label` its display name.
+- `project` is omitted for a conversation outside a project; `name` is `""` when the project is no longer registered.
+- `updated` is the row's `modified`.
+- `counts` covers every such conversation. `conversations` lists at most 20: `needs_you` first, then `running`, then `idle`, each newest first.
+
+Errors:
+
+- `500` the list could not be read
+
+Events: none. Poll it; clients connected to this Core can follow `GET /v1/sessions` and the event stream instead.
 
 ### POST /v1/sessions
 
