@@ -162,12 +162,13 @@ Omitted as a whole when empty. Field names are camelCase.
 - `skill`: `{"name"}`.
 - `authorId`, `authorParticipantId`, `dispatchId`: strings.
 - `targetParticipantIds`: array of strings.
-- `backgroundTrigger`: `{"kind","triggerId","label"}`. `label` is omitted when unset.
+- `backgroundTrigger`: `{"kind","triggerId","label"}`. `label` is omitted when unset. A scheduled run's prompt has `kind` `schedule` and `triggerId` the plan id (rows written since this field was set there).
 - `internalMessage`: `subAgentCompletion`, `turnAborted`, `dateStampReminder`, `goalContinuation`, `contextUpdate`, `coreMessage`, `botTaskResult`, or `wake` (the hidden first message of a turn a [wake](runs.md#wakes) started).
 - `contextEpoch`: string.
 - `contextUpdateKey`: string. The four values listed under list rows mark a context record.
 - `importedFrom`: `terminal` when the record was copied from a terminal session.
 - `source`: `bot` when the Bot sent the message into a conversation it opened.
+- `targetSessionId`: on a notice Core recorded in a Bot chat about another conversation (an idle reminder), that conversation's id.
 
 ## Messages
 
@@ -480,6 +481,7 @@ Errors:
 - `404` session not found (unknown id, or a lane that is not open)
 - `409` turn already running
 - `409` `delete the side chats branched from this chat first: ` followed by those chats' titles
+- `409` the conversation is one of the Bot supervisor's hidden sessions (Core prunes them itself)
 - `500` the conversation could not be removed. `Cannot remove conversation images` means the conversation itself is already gone and only its images could not be removed. A failure before removal leaves the conversation in place.
 
 Events: deleting a main conversation publishes `sessions.changed`, and also `bot.changed` when the id is a Bot chat. Closing a lane publishes `session.messages` and `sessions.changed`, and also `bot.changed` when this Core keeps Bot state, even if the lane was not a Bot chat. `bot.changed` has no `session_id`.
@@ -644,6 +646,8 @@ Response: `200`
 ```
 
 `changed` is false when nothing was unseen.
+
+Every call, changed or not, also tells Core the owner is looking at the conversation: the Bot's idle reminder for it waits until 2 minutes have passed without one (see the Bot reference). A client that shows a conversation may repeat the call, for example once a minute while its window is focused.
 
 Errors:
 

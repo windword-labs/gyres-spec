@@ -97,7 +97,7 @@ Response: `200`
 - `binary` is the path of that runtime on the Core host.
 - `error` is omitted when empty. After a failed install it holds the reason.
 - `downloaded` is how many bytes of the archive have been written. `total` is the archive size in bytes, or `-1` when the download did not say a length. Both stay at `0` until a download starts, and are not cleared when `state` becomes `ready`. Use `state`, not these two numbers, to decide readiness.
-- Only macOS on Apple silicon can install this runtime. Other hosts come up with `state` `error`.
+- macOS (Apple silicon and Intel), Linux (x86-64 and arm64, glibc or musl) and Windows (x86-64 and arm64) can install this runtime. Other hosts come up with `state` `error`. On Windows `binary` ends in `bun.exe`.
 
 Errors:
 
@@ -693,7 +693,7 @@ The body is the same object as `GET /v1/code-runtime`. When a new install starts
 Errors:
 
 - `503` the code runtime is not running in this Core. The body is only `{"error":"code runtime unavailable"}`, with no `failure`.
-- `503` the install could not start. The body is only `{"error":"<reason>"}`, with no `failure`. On a host other than macOS Apple silicon the reason is `managed Bun currently supports macOS arm64`. A later GET then has `state` `error` and the same text in `error`.
+- `503` the install could not start. The body is only `{"error":"<reason>"}`, with no `failure`. On a host the runtime does not support (see `GET /v1/code-runtime`) the reason names the platform. A later GET then has `state` `error` and the same text in `error`.
 
 Events: none.
 

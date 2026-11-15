@@ -4,7 +4,7 @@ The Bot is one persistent assistant: a profile, a memory file, a main chat, opti
 
 A successful body is `application/json`. An error body is `{"error":"<message>","failure":{"code":"core_request_failed","message":"<message>","http_status":<status>,"details":"<message>"}}`. Channel routes send `Cache-Control: no-store`.
 
-`bot.changed` on `GET /v1/events` has no session id. Refetch `GET /v1/bot` after it, and `GET /v1/bot/memory` when the memory may have changed. It is sent when the profile, chat list, task list, or memory changes, not when a read changes nothing.
+`bot.changed` on `GET /v1/events` has no session id. Refetch `GET /v1/bot` after it, and `GET /v1/bot/memory` when the memory may have changed. It is sent when the profile, chat list, task list, supervision agenda, or memory changes, not when a read changes nothing.
 
 ## Profile
 
@@ -22,6 +22,8 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `channel_chats` (object) maps a kind (`feishu`, `discord`) to the session id of the chat that kind talks to now. Kinds with no chat yet are absent. `{}` when none are bound.
 - `chat_rotation` and `side_chat_branches` are always true: this Core accepts `POST /v1/bot/chats/{id}/new` and a `from` on `POST /v1/bot/chats`.
 - `tasks` (array) is newest first. See Tasks.
+- `agenda` (array, read only) is the Bot's supervision agenda: open items first, then settled ones, each group most recently updated first. See Agenda. `[]` when empty.
+- `agenda_error` (string) is present only when the stored agenda could not be read at start. `agenda` is then `[]` and the Bot cannot change the agenda until the file is repaired or removed and Core restarts. The rest of the profile is unaffected.
 
 A session id is UTC time `YYYY-MM-DDTHH-MM-SS`, then `_`, then a UUID. Example: `2026-10-14T12-02-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b`.
 
@@ -66,6 +68,57 @@ Each chat:
 - `delivered` (bool) is present and true once that outcome was handed to the requesting chat.
 - `report` (bool) is present and true on a hidden task whose outcome is reported back to the requesting chat (every hidden task created since #1507).
 - `reply` (object) is present when the request arrived from a channel: `channel` (kind), `chat_id`, and `message_id`. Absent means the request came from the app.
+
+## Agenda
+
+The agenda is work the Bot supervises: what the owner delegated to it or asked it to watch. Only the Bot changes it, through its own tools in Bot chats; no route writes it. Each item stores the owner's intent and pointers to the conversations and Tasks doing the work, never copied transcripts.
+
+- `id` (string) is `ag_` plus 16 lowercase hex characters.
+- `title` (string), at most 200 characters.
+- `intent` (string) is the owner's acceptance criteria and constraints, at most 4,000 characters.
+- `targets` (array) of objects with `session_id` (an ordinary conversation, never a Bot chat) and/or `task_id` (a Task, a Bot task among them). A hidden Bot task is always a `task_id` target: given its conversation's `session_id`, Core stores its `task_id`. `[]` when none.
+- `origin_session_id` (string) is the Bot chat the item was created from. Omitted when empty.
+- `reply` (object) is present when the item was created from a channel message: `channel` (kind), `chat_id`, and `message_id`.
+- `status` (string) is `active`, `waiting_owner` (parked until the owner answers), `completed`, or `cancelled`. The first two are open.
+- `stage` (string) is where the work stands and the next planned step, at most 1,000 characters. Omitted when empty.
+- `last_reported` (string) is what the owner was last told, at most 1,000 characters. Omitted when empty.
+- `next_check_at` (string, UTC `YYYY-MM-DDTHH:MM:SSZ`) is the item's next follow-up. Omitted when unset.
+- `precheck` (object) is present when set: `project_id` (a registered Project), and exactly one of `command` or `url` (`http` or `https`), each at most 2,000 bytes. A `command` runs in `project_id`'s folder, else in the working directory of the item's first target that has one; an item whose command has neither is refused. Core adds `every_seconds` (how far a check that found nothing new moves `next_check_at`; omitted for the default of 15 minutes), `last_hash` (the output's SHA-256 when the supervisor last looked), `skips` (checks since then that found nothing new) and `checked_at`, each omitted until set.
+- `auto_steps` (int) counts the advances made without the owner since the owner last resumed the item. `max_auto_steps` (int, 1 through 50) is its limit; a new item gets the default.
+- `daily_tokens` (int) is a daily token limit: the tokens the item's target conversations and Tasks used since local midnight, plus the supervisor's own (its current and kept sessions). Omitted when unset.
+- `idle_wakes` (int) counts the follow-ups (`next_check_at` falling due) that woke the supervisor since it last advanced the item or the owner resumed it. Omitted when 0.
+- `waiting_since` (string, UTC RFC3339 with fractional seconds) is when the item last became `waiting_owner`. Omitted until then.
+- `created_at` and `updated_at` (strings, UTC `YYYY-MM-DDTHH:MM:SSZ`).
+
+At most 20 items are open at once. Settled items beyond the 50 most recently settled are dropped, earliest settled first. A Bot turn the owner did not start (a background, scheduled, woken, or task-result turn) cannot raise `max_auto_steps`, raise or remove `daily_tokens`, change an item's `title` or `intent`, move a `waiting_owner` item out of waiting (resume, complete or cancel it), or reopen a settled one. When the owner resumes an item, `auto_steps` and `idle_wakes` return to 0. One exception lets such a turn resume, complete or cancel a `waiting_owner` item: Core sees the owner already dealt with it at a target after `waiting_since` — an owner message (not one the Bot sent, not a scheduled run's prompt, not a wake or goal continuation) or an approval the owner gave in a target conversation, a target conversation archived, or a target Task `complete`, `completed` or `cancelled`. It does not reset `auto_steps`.
+
+### Supervisor
+
+Core runs the agenda in the background in one hidden Bot session, the supervisor. It is not in `chats`, the conversation list, the archived list or search (neither the app's nor a model's `session_search`), and neither are the sessions it rotated out of (up to 5 are kept; older ones are deleted, their usage records kept). `DELETE /v1/sessions/{id}` refuses them. The supervisor only coordinates: its turns have the Bot's radar, agenda, task (list, create, send), outbox and wait tools and `session_search`, and no tool that writes files, runs commands, controls the desktop, asks the owner a question, sets goals or schedules, manages skills, starts subagents or shows anything. The supervisor runs one unattended turn at a time on a batch of events: a Bot task or a run in a target conversation settled, a target Task needs attention (blocked, capped, usage or budget limited, or an approval waits; such a Task gets no static notice in the main chat), an item's `next_check_at` fell due, or the owner resumed an item. An outcome or Task notice that no active item watches goes to the chats as before. Events and batches are kept in the claim log, so a restart neither loses nor repeats one.
+
+Each `bot_task` create or send of the supervisor names the item it advances and counts one `auto_steps`; a send reaches only the item's targets and is refused while the owner is active in that conversation (a live run the owner started, or an owner message in the last 3 minutes). At `max_auto_steps`, or when `daily_tokens` is used up, Core refuses, sets `waiting_owner` and tells the owner itself. A follow-up that would wake the supervisor counts too: once `idle_wakes` reaches `max_auto_steps` (follow-ups without an advance), or `daily_tokens` is used up, Core sets `waiting_owner` and tells the owner instead of waking it.
+
+The supervisor's single wake (source `bot_supervisor`, see the runs reference) follows the earliest `next_check_at` of the active items. When it fires, each due item's pre-check runs first: an unchanged output moves the item on by `every_seconds` without a model request. A command pre-check runs unattended: a command that only reads files (one of `cat`, `head`, `tail`, `ls`, `wc`, `stat`, `pwd`, written as plain words without shell syntax) runs without approval; `git` is not among them, since a repository can configure programs that even its reading commands run; any other needs a grant or the unattended `allow` policy. A pre-check that fails wakes the supervisor with the failure in the event's `error`.
+
+The supervisor reaches the owner only through its outbox: the message is recorded in the item's Bot chat (the main chat when that chat is gone), as a delivered record like a scheduled result, and posted to at most one channel (see Notices): the item's `reply` channel, else the one `notify_target` names. An `escalate` message also sets `waiting_owner`; a `complete` one completes the item and sets `last_reported`. Messages are kept in `<data>/bot/outbox.json` until delivered, so a restart finishes a delivery without recording or posting it twice; a post interrupted mid-send is not retried.
+
+A supervisor run that sends nothing through the outbox leaves one display-only row at the end of the main chat: a user-role record with `metadata.internalMessage` `supervisorNotice` and `metadata.supervision` (`runId`, `supervisorSessionId`, and when known `agendaIds`, `targetSessionIds`, `triggers`, `tools`, `status`, `inputTokens`, `outputTokens`, `startedAt`, `finishedAt`; `summary` may be empty). The row never reaches the model and starts no turn; its text is only for a client that does not know it. Clients show consecutive rows as one line and open the runs through `GET /v1/bot/supervisor/runs`.
+
+In a Bot chat turn the owner started, a `bot_task` `send` that succeeds into a target of a `waiting_owner` item also resumes that item (`active`, `auto_steps` 0) and wakes the supervisor, as resuming it does. A turn the owner did not start, and the supervisor, never resume an item this way.
+
+A Bot chat's `bot_task` `create` may name an open item (`agenda_id`): the new task joins the item's targets before its run starts (a visible task's conversation, a hidden task's id), so its outcome goes to the supervisor however fast it settles; without one, its outcome comes back to the chat as before. A `waiting_owner` item takes such work only in a turn the owner started, which resumes it (`active`, `auto_steps` 0).
+
+A `bot_task` `send` into a conversation whose run waits on an approval queues the message and also answers `blocked_on_approval: true`, `pending_approvals` (the waiting tools' labels) and `warning`: the run reads the message only after a person decides the approval. The Bot cannot decide approvals.
+
+After `/new`, a report for a chat it set aside (a task outcome, a supervisor message) goes to the slot's current chat: the main chat's, or that channel kind's current chat, which still answers the channel message.
+
+### Notices
+
+Core's own notices to the owner are never broadcast. Each is recorded in a Bot chat and posted to at most one channel: supervisor messages, needs-attention notices of Tasks, and idle reminders. Work that came from a channel goes back to that channel. Everything else follows `notify_target`: `last_active` (the default) posts to the channel the owner last wrote from, a channel kind (`feishu`, `discord`) pins that one, and `app_only` posts nowhere. A target that is switched off, not configured or has no owner yet keeps the notice in the app (the main chat) only. A post is also recorded, once, in that kind's current Bot chat (`channel_chats`), so a reply there has it in context.
+
+A post about work that waits on a person's approval (an idle reminder for an approval, a supervisor `escalate` about an item whose target conversations or Tasks wait on one, a Task's approval notice) is followed by each waiting approval's own card in the owner's direct chat of that kind, the same card a channel turn shows: at most one card per approval and kind. Deciding the approval on any card or in the app updates every card of it; a card for an approval already decided or gone shows as expired when pressed.
+
+Idle reminder: when one of the owner's ordinary conversations (not a Bot chat, a subagent, an archived conversation, a target of an open agenda item, or the open attempt of an unsettled Task, which get Task notices) waits on a tool approval, stopped `interrupted` or `blocked`, or ended `failed` (its `unseen` is `failed`, from a run the owner or an external agent started), and nobody has looked at it for `idle_nudge_minutes`, Core sends one reminder: a record in the main chat and one post as above. Looking is an owner message there or `POST /v1/sessions/{id}/seen` within the last 2 minutes; the wait counts from the later of the condition starting and the last look. A condition older than 24 hours is not reminded. Each condition of a run is reminded once, also across restarts. The records name the conversation (`[Session ID: <id>, Title: <title>]`) and carry `metadata.targetSessionId`. Core never approves, sends or changes anything in that conversation.
 
 ## Memory
 
@@ -172,9 +225,15 @@ Response: `200`
   "chat_rotation": true,
   "side_chat_branches": true,
   "tasks": [],
-  "system_prompt": "You are the user's persistent local Gyres Bot."
+  "system_prompt": "You are the user's persistent local Gyres Bot.",
+  "agenda": [],
+  "notify_target": "last_active",
+  "notify_channel": "feishu",
+  "idle_nudge_minutes": 10
 }
 ```
+
+`notify_target` is where notices without a channel of their own go (see Notices): `last_active`, `app_only` or a channel kind. `notify_channel` is the channel it resolves to now, `""` when notices stay in the app. `idle_nudge_minutes` is the idle reminder's wait, `0` when reminders are off; the default is 10.
 
 `system_prompt` above is only the opening sentence. The field is the full assembled prompt: that introduction, then ` Your name is Research Bot.`, a space, the description, then the fixed style section. Before any save, `configured` is false, `name` is `Gyres Bot`, and `description` is the built-in guidance.
 
@@ -204,6 +263,8 @@ Request:
 - `description` (string). Trimmed. Omitted is `""` and clears a description already saved. Send the current description back when a save should keep it.
 - `task_provider_id` and `task_model` (strings). Omit both to leave the task model unchanged. Send both as `""` to clear it. Send both non-empty to pin it. Any other combination is rejected, including one empty and one non-empty. The same rule applies to `bot_provider_id` and `bot_model`.
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, optional). Omitted keeps the effort while the model stays the same and clears it when the same body changes that model. `""` is the model's default. A non-empty value must be one of the model's `reasoning_efforts` (`GET /v1/models`) and needs that model set.
+- `notify_target` (string, optional): `last_active`, `app_only`, or a channel kind of this Core. Omitted keeps the stored value.
+- `idle_nudge_minutes` (int, optional): 0 through 1440; `0` turns idle reminders off. Omitted keeps the stored value.
 - A non-empty provider id of `local-codex`, `local-grok`, `local-pi`, `local-claude`, or `local-cursor` is rejected. Other fields are ignored.
 
 Response: `200` the profile, same shape as `GET /v1/bot`, after the save and after the main chat exists.
@@ -217,6 +278,8 @@ Errors:
 - `400` unsupported reasoning_effort for this model
 - `400` reasoning_effort needs a model
 - `400` Bot conversations run on a configured provider, not an external agent
+- `400` notify_target must be last_active, app_only or a channel kind
+- `400` idle_nudge_minutes must be 0 through 1440
 - `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat happens after a successful save.
 
 Events: `bot.changed`. Also `sessions.changed` when this call creates the main chat.
@@ -494,6 +557,74 @@ Errors:
 - `500` the run state or the task record could not be saved. The message `bot task not found` here means the task disappeared after the `404` check. If saving the task record fails, pause, resume, or stop has already been applied to the live run.
 
 Events: `bot.changed`. Pause, resume, and stop also emit `session.task` for the task conversation. Stop of a live run also leads to `session.run_finished`.
+
+### GET /v1/bot/supervisor/runs
+
+Auth: any key
+Effect: Lists the supervisor's runs, newest first. Read only.
+
+Query:
+
+- `run_ids` (optional) comma-separated run ids: only those runs, in that order; unknown ids are left out. `limit` and `before` are ignored then.
+- `limit` (optional) 1 or more, default 20, at most 100.
+- `before` (optional) a run id from an earlier page: the runs older than it.
+
+Response: `200`
+
+```json
+{
+  "runs": [
+    {
+      "run_id": "turn_6f1c…",
+      "supervisor_session_id": "2026-11-15T12-13-10_aca8…",
+      "status": "completed",
+      "started_at": "2026-11-15T12:13:10.296Z",
+      "finished_at": "2026-11-15T12:13:10.395Z",
+      "triggers": ["check_due"],
+      "agenda_ids": ["ag_18dcfdca959ed51d"],
+      "target_session_ids": ["2026-11-15T12-17-16_18f8…"],
+      "tools": ["bot_radar", "bot_agenda"],
+      "input_tokens": 5120,
+      "output_tokens": 96,
+      "summary": "tests are running, look again later",
+      "outbox": false,
+      "pruned": false,
+      "target_tasks": [
+        { "task_id": "bot_3c1f…", "title": "Run the tests", "session_id": "2026-11-15T12-14-02_77ab…", "hidden": true }
+      ]
+    }
+  ],
+  "next_before": "turn_6f1c…"
+}
+```
+
+A run is one turn of the supervisor session (or of a rotated one Core still keeps); `run_id` is that turn's id (`turn.id` on its records). `status` is the turn's (`running` while it runs). `triggers` are the kinds of the inbox events it took (`run_settled`, `task_attention`, `check_due`, `owner_resumed`); `agenda_ids` and `target_session_ids` the items they name and those items' target conversations; `tools` the tool calls in order. `summary` is the stage the run recorded with `bot_agenda`, else the last thing it said, at most 240 characters. `outbox` is true when it told the owner with `bot_outbox`. `target_tasks` are the Bot tasks and Tasks its events, items and `bot_task` calls name that Core still knows: `title`, and `session_id`, the conversation to open (a Bot task's, or a Task's latest attempt; omitted when there is none). `hidden` is true for a hidden Bot task's conversation, which is not in the conversation list and opens as a Bot task. `[]` when none, and for a pruned run. A run whose supervisor session was deleted after rotation comes from its main-chat notice row (see Supervisor) with `pruned: true`; runs that left no row are gone then. `next_before` is present when older runs remain.
+
+Errors:
+
+- `400` limit must be a positive number
+- `404` run not found (`before` is not a listed run)
+
+### GET /v1/bot/supervisor/runs/{run_id}
+
+Auth: any key
+Effect: One supervisor run with what it did. Read only.
+
+Response: `200`
+
+```json
+{
+  "run": { "run_id": "turn_6f1c…", "pruned": false },
+  "events": [{ "kind": "check_due", "agenda_ids": ["ag_18dcfdca959ed51d"], "at": "2026-11-15T12:13:10Z" }],
+  "records": []
+}
+```
+
+`run` has the shape of a `GET /v1/bot/supervisor/runs` entry. Runs whose rows are only in a main chat `/new` set aside are found too. `events` are the inbox events the run took. `records` are its transcript records, the same shape as `records` of `GET /v1/sessions/{id}`. A pruned run has `[]` for both.
+
+Errors:
+
+- `404` run not found
 
 ### GET /v1/bot/channels
 

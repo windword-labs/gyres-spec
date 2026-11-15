@@ -249,7 +249,7 @@ Refetch: `GET /v1/sessions/{id}/run-state` and `GET /v1/sessions/{id}/pending-me
 
 ### bot.changed
 
-The Bot's saved state changed (profile, models, chats, tasks), its memory text or memory change log changed, or a Bot chat started or finished a run. Optional: listed in `ready.publishes`.
+The Bot's saved state changed (profile, models, chats, tasks, supervision agenda), its memory text or memory change log changed, a Bot chat started or finished a run, or a supervisor run started or ended. Optional: listed in `ready.publishes`.
 
 ```json
 { "type": "bot.changed" }
@@ -257,7 +257,7 @@ The Bot's saved state changed (profile, models, chats, tasks), its memory text o
 
 No `session_id`.
 
-Refetch: `GET /v1/bot`. If the memory view is open, also `GET /v1/bot/memory`.
+Refetch: `GET /v1/bot`. If the memory view is open, also `GET /v1/bot/memory`; if supervisor runs are shown, also `GET /v1/bot/supervisor/runs` (and an open run's `GET /v1/bot/supervisor/runs/{run_id}`).
 
 ### peers.changed
 
@@ -381,7 +381,7 @@ Every stored frame's `data` is one JSON object with a `type`. The opening frame 
 - `usage` is `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, and optional `cache_usage_reported`.
 - `turn` is omitted when the row is not on a journal turn. `status` is `running` until the turn finishes, then `completed`, `failed`, `cancelled`, or `interrupted`. `finished_at` is omitted while running.
 - `shared` is `true` on rows a side lane shares with the main conversation. Omitted otherwise.
-- `metadata`, when present, may include `skill` (`name`), `authorId`, `authorParticipantId`, `targetParticipantIds`, `dispatchId`, `backgroundTrigger` (`kind`, `triggerId`, optional `label`), `internalMessage`, `contextEpoch`, `contextUpdateKey`, `importedFrom` (`terminal` when the row was copied from a terminal session), and `source` (`bot` when the Bot sent the message). `internalMessage` is `subAgentCompletion`, `turnAborted`, `dateStampReminder`, `goalContinuation`, `contextUpdate`, `coreMessage`, or `botTaskResult`.
+- `metadata`, when present, may include `skill` (`name`), `authorId`, `authorParticipantId`, `targetParticipantIds`, `dispatchId`, `backgroundTrigger` (`kind`, `triggerId`, optional `label`), `internalMessage`, `contextEpoch`, `contextUpdateKey`, `importedFrom` (`terminal` when the row was copied from a terminal session), `source` (`bot` when the Bot sent the message), and `targetSessionId` (the conversation a Bot notice is about). `internalMessage` is `subAgentCompletion`, `turnAborted`, `dateStampReminder`, `goalContinuation`, `contextUpdate`, `coreMessage`, or `botTaskResult`.
 
 `stop_reason` on an assistant message is `end_turn`, `tool_use`, `max_tokens`, `error`, or `aborted`. `failure`, when an error string is present, is `{ "code", "message", "http_status", "details" }`. `http_status` and `details` are omitted when empty. `code` is a safe classification such as `request_failed`, `rate_limited`, `timeout`, or `connection_failed`.
 

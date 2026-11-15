@@ -97,7 +97,7 @@ A goal turn may wait (the model's `wait_goal`): the turn ends with no continuati
 
 ## Wakes
 
-A wake is one deferred turn of a lane: when it is due, Core starts a turn whose first message is hidden (`internalMessage` `wake`). A lane has at most one pending wake; setting another replaces it. Wakes survive a Core restart. A wake waits while its lane runs and fires when the lane is free. `source` is `goal` (a goal waiting), `plugin:<name>` (a plugin, such as the loop plugin's next check) or `api`. Deleting or archiving the conversation drops its wakes.
+A wake is one deferred turn of a lane: when it is due, Core starts a turn whose first message is hidden (`internalMessage` `wake`). A lane has at most one pending wake; setting another replaces it. Wakes survive a Core restart. A wake waits while its lane runs and fires when the lane is free. `source` is `goal` (a goal waiting), `plugin:<name>` (a plugin, such as the loop plugin's next check), `api`, or `bot_supervisor` (the Bot supervisor's next agenda follow-up, on its hidden session; it starts no turn itself, see the Bot reference). Deleting or archiving the conversation drops its wakes.
 
 A wake object:
 
