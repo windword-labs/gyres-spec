@@ -33,7 +33,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 
 ## List rows
 
-`GET /v1/sessions` without `archived=true` returns live rows, newest `modified` first (string order, which is chronological for the timestamp above). Pinned conversations stay in that order; `pinned_at` is only a marker. Bot conversations are omitted, and so is a child conversation whose parent still exists. A side lane is not its own row.
+`GET /v1/sessions` without `archived=true` returns live rows, newest `modified` first (string order, which is chronological for the timestamp above). Pinned conversations stay in that order; `pinned_at` is only a marker. Bot conversations are omitted (hidden workers' conversations too: see the Bot tasks' `unlisted`), and so is a child conversation whose parent still exists. A side lane is not its own row.
 
 ```json
 {
@@ -65,7 +65,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 - `origin`, when present on a list row, is only a Bot origin (below). A terminal import's origin is not on the list.
 - `unseen_kind` is omitted when `unseen` is `""`. When present it is `user`, `scheduled`, `bot_task`, `external`, `wake`, `goal`, or `recovery`.
 
-`archived=true` (exactly that string; `1`, `True`, and a missing parameter are the live list) returns archived rows, newest `archived_at` first. Bot conversations are omitted. Side lanes are not rows.
+`archived=true` (exactly that string; `1`, `True`, and a missing parameter are the live list) returns archived rows, newest `archived_at` first. Bot conversations and hidden workers' conversations are omitted. Side lanes are not rows.
 
 ```json
 {
@@ -482,6 +482,7 @@ Errors:
 - `409` turn already running
 - `409` `delete the side chats branched from this chat first: ` followed by those chats' titles
 - `409` the conversation is one of the Bot supervisor's hidden sessions (Core prunes them itself)
+- `409` the conversation is a project's current Coordinator chat (`POST /v1/bot/chats/{id}/new` sets it aside first)
 - `500` the conversation could not be removed. `Cannot remove conversation images` means the conversation itself is already gone and only its images could not be removed. A failure before removal leaves the conversation in place.
 
 Events: deleting a main conversation publishes `sessions.changed`, and also `bot.changed` when the id is a Bot chat. Closing a lane publishes `session.messages` and `sessions.changed`, and also `bot.changed` when this Core keeps Bot state, even if the lane was not a Bot chat. `bot.changed` has no `session_id`.
@@ -822,7 +823,7 @@ Response: `200`
 
 - `settings` is `null` when no model is saved. A title with no model still returns `null`. When present, `provider_id`, `model`, `reasoning_effort`, `speed`, and `updated_at` are always included. Empty `reasoning_effort` or `speed` means the model's default. `updated_by` is the id of the access key that saved the choice, never the secret, and is omitted when unset. `title` is omitted when unset. `PUT` settings does not change `title`.
 - `effective` is the saved choice, else the Settings default, else the first available model. A saved external-agent model on a Bot conversation counts as unset. The four fields are always present; `reasoning_effort` and `speed` may be `""`.
-- In a Bot chat (main chat, side chat or channel chat) the conversation has no model of its own: `settings` is the Bot model (or `null` when unset), `effective` is the Bot model, else the Settings default, else the first available model, and `bot` is `{"scope": "bot", "bot_model", "task_model"}`, each model `{provider_id, model, reasoning_effort, speed}` or `null` when unset. `bot` is omitted outside Bot chats.
+- In a Bot chat (main chat, side chat or channel chat) the conversation has no model of its own: `settings` is the Bot model (or `null` when unset), `effective` is the Bot model, else the Settings default, else the first available model, and `bot` is `{"scope": "bot", "bot_model", "task_model"}`, each model `{provider_id, model, reasoning_effort, speed}` or `null` when unset. `bot` is omitted outside Bot chats. In a project's Coordinator chat (or a chat branched from or set aside by one) `settings` and `effective` are the project's Coordinator model when it has one, and `bot` is `{"scope": "project", "project_id", "project_model", "bot_model", "task_model"}` with `project_model` `null` while the chat follows the Bot model.
 
 Errors:
 
@@ -851,7 +852,7 @@ Request:
 
 - `provider_id` and `model` (strings) are required and must name a model that is available now.
 - `reasoning_effort` and `speed` (strings, optional). A non-empty `reasoning_effort` must be one of that model's `reasoning_efforts` (`GET /v1/models`); for a provider model those are the levels its model list reported, sent as Chat Completions `reasoning_effort` or Responses `reasoning.effort`, and `""` sends none. `speed` must be empty for a provider model. For an external agent, `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
-- `target` (string, optional) applies only in a Bot chat: `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). Outside Bot chats it is ignored.
+- `target` (string, optional) applies only in a Bot chat: `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). In a project's Coordinator chat the default is `"project"`: it sets that project's Coordinator model (`provider_id` and `model` both `""` clear it, so its Coordinator chats follow the Bot model). Outside Bot chats it is ignored.
 - The body is at most 4096 bytes. Other fields are ignored.
 
 A conversation an external agent owns can stay on that agent. Pointing it at a provider, or at a different external agent, is refused. A Bot conversation cannot be pointed at an external agent.
@@ -862,7 +863,7 @@ Errors:
 
 - `404` session not found
 - `400` invalid json
-- `400` `target must be "bot" or "task"`
+- `400` `target must be "bot" or "task" (or "project" in a Project's Coordinator chat)`
 - `400` provider_id and model are required
 - `400` unknown or unavailable model
 - `400` speed currently requires an external agent model
@@ -975,6 +976,7 @@ Errors:
 - `409` `{Label} owns this conversation history and workspace; start a new conversation to change them`
 - `404` session not found
 - `409` stop the current turn before changing workspace
+- `409` a Project's Coordinator chat stays in its Project
 - `400` invalid workspace (body is not the object above, or is larger than 65536 bytes)
 - `400` the directory or project cannot be bound (`project not found`, `current directory must be inside a project directory`, `invalid project cwd "..."`, `use an absolute directory path on the Core host`, or the library or conversation directory could not be created)
 

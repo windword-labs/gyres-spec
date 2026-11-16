@@ -1,6 +1,6 @@
 # Bot and chat channels
 
-The Bot is one persistent assistant: a profile, a memory file, a main chat, optional side chats, one chat per connected channel kind, and background tasks. These routes are how a frontend reads and changes that state. Ordinary conversations are a different list; a Bot chat (the main chat, a side chat, a channel chat, or a hidden task conversation) is omitted from it. Read chats and tasks from `GET /v1/bot`.
+The Bot is one persistent assistant: a profile, a memory file, a main chat, optional side chats, one chat per connected channel kind, one Coordinator chat per project, and background tasks. These routes are how a frontend reads and changes that state. Ordinary conversations are a different list; a Bot chat (the main chat, a side chat, a channel chat, a project's Coordinator chat, a hidden task conversation, or a hidden worker's conversation) is omitted from it. Read chats and tasks from `GET /v1/bot`.
 
 A successful body is `application/json`. An error body is `{"error":"<message>","failure":{"code":"core_request_failed","message":"<message>","http_status":<status>,"details":"<message>"}}`. Channel routes send `Cache-Control: no-store`.
 
@@ -14,7 +14,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `name` (string) is `Gyres Bot` until a save. A save stores the trimmed name.
 - `description` (string) is built-in delegation guidance until the owner saves one. A stored description that is empty, or exactly `Your persistent local assistant.`, is filled with that guidance once, before any request. A save stores the trimmed description, including `""`, and a later empty save stays empty.
 - `main_session_id` (string) is the current main chat. The first read or write that needs it creates the chat.
-- `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the one model of every Bot chat (main chat, side chats, each channel kind's chat, including chats `/new` creates). Both `""` means the Settings default, then the first model Core can use. A Bot chat's own saved model is not used; `PUT /v1/sessions/{id}/settings` in any Bot chat sets this pair. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
+- `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the one model of every Bot chat (main chat, side chats, each channel kind's chat, including chats `/new` creates). Both `""` means the Settings default, then the first model Core can use. A Bot chat's own saved model is not used; `PUT /v1/sessions/{id}/settings` in any Bot chat sets this pair. A project's Coordinator chats (with `project_id`) run on that project's Coordinator model when the project has one (`coordinator_model` on the project), else on this pair; `PUT /v1/sessions/{id}/settings` there sets the project's Coordinator model unless its `target` is `bot` or `task`, and an empty choice clears it. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, always present) are the reasoning effort of the Bot model and of the task model. `""` is the model's default (no effort is sent). A task without a task model takes the Bot model with its effort. The first Core start after efforts were added copies the main chat's saved effort to an empty `bot_reasoning_effort` once, when that saved setting names the Bot model.
 - `task_provider_id` and `task_model` (strings, always present) choose the model for a new background task. Both `""` means the Bot model, then Core's default model resolution. A non-empty pair is pinned for every new task: the fallback chain is not used. A pair that names an external agent is ignored at task creation as if it were unset.
 - `system_prompt` (string) is the prompt Bot conversations receive: a fixed introduction, then ` Your name is <name>.` when the name is non-empty, then a space and the description when that is non-empty, then a fixed style section. Memory is not part of this string.
@@ -22,6 +22,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `channel_chats` (object) maps a kind (`feishu`, `discord`) to the session id of the chat that kind talks to now. Kinds with no chat yet are absent. `{}` when none are bound.
 - `chat_rotation` and `side_chat_branches` are always true: this Core accepts `POST /v1/bot/chats/{id}/new` and a `from` on `POST /v1/bot/chats`.
 - `tasks` (array) is newest first. See Tasks.
+- `projects` (array) is every registered project in the order of `GET /v1/projects`, for a project list next to the Bot's chats: `id`, `name`, `available` (the project's directories can be used now), `running` (its current Coordinator chat holds a live turn), and when set `folderless`, `bot_hidden`, `coordinator_session_id` (the current Coordinator chat, absent until `POST /v1/projects/{project}/coordinator` created it) and `run_state` (as for a chat). `[]` when none are registered.
 - `agenda` (array, read only) is the Bot's supervision agenda: open items first, then settled ones, each group most recently updated first. See Agenda. `[]` when empty.
 - `agenda_error` (string) is present only when the stored agenda could not be read at start. `agenda` is then `[]` and the Bot cannot change the agenda until the file is repaired or removed and Core restarts. The rest of the profile is unaffected.
 
@@ -40,7 +41,8 @@ Each chat:
 - `from_entry` (string) is present for a branched side chat: the main-chat message id it branched after.
 - `ready` (bool) is present only when true. A branched chat is ready once its model snapshot has been copied. A successful branch returns it true.
 - `channel` (string) is present for a chat created for a kind (`feishu` or `discord`). It stays after `/new` points the kind at a newer chat.
-- `ended` (string, UTC `YYYY-MM-DDTHH:MM:SSZ`) is present after `/new` moved the main-chat pointer or the kind's binding off this chat. The chat stays listed and usable.
+- `ended` (string, UTC `YYYY-MM-DDTHH:MM:SSZ`) is present after `/new` moved the main-chat pointer, the kind's binding or the project's Coordinator pointer off this chat. The chat stays listed and usable.
+- `project_id` (string) is present on a project's Coordinator chat, on one `/new` set aside, and on a side chat branched from one. The project's current Coordinator chat is the `coordinator_session_id` in `projects`, not the absence of `ended`. A Coordinator chat's `title` is the project's name.
 - `running` (bool) is true while a live turn holds the chat, including while that turn is `paused` or `pausing`.
 - `run_state` (string) while a live turn holds the chat is `running`, `pausing`, `paused`, or `waiting_children` (`running` that is waiting on child runs). When nothing is live but a task is still pending, it is the pending task's state as [`GET /v1/sessions/{id}/run-state`](runs.md#get-v1sessionsidrun-state) derives it: `paused`, `interrupted`, or `blocked`. Otherwise `idle`.
 
@@ -61,9 +63,11 @@ Each chat:
 - `result` (string) is present when `completed`: the last assistant text, or `Task completed. Open the task session for the full transcript.` when that text is empty.
 - `error` (string) is present when `failed`. It is the run's error, or `task stopped` when the run was aborted and reported no error. A task already set to `cancelled` is left as `cancelled`.
 - `created` and `updated` (strings, UTC `YYYY-MM-DDTHH:MM:SSZ`).
-- `visible` (bool) is present and true when the task runs in an ordinary conversation the owner can open. `POST /v1/bot/tasks` does not set it. Those tasks are not created by this route.
+- `visible` (bool) is present and true when the task runs in an ordinary conversation the owner can open: a visible task, or a hidden worker. `POST /v1/bot/tasks` does not set it. Those tasks are not created by this route.
+- `unlisted` (bool) is present and true on a hidden worker: a task the Bot started hidden but in a project or directory, on an external agent or on a named model (in a project's Coordinator chat, every hidden task, in that project). Its conversation is an ordinary one (no Bot prompt or tools; the Bot can send it more messages), yet it is omitted from `GET /v1/sessions`, archived included. List a project's workers with `GET /v1/projects/{project}/activity`; open one by its `session_id` as an ordinary conversation.
+- `project_id` and `cwd` (strings) are present when the task's conversation works in a project or a directory.
 - `adopted` (bool) is present and true when the Bot sent into an existing conversation it did not open. `prompt` is then `""`.
-- `executor` (string) is present when a visible task runs on an external agent: `codex`, `grok`, `pi`, `claude`, or `cursor`.
+- `executor` (string) is present when a visible task or a hidden worker runs on an external agent: `codex`, `grok`, `pi`, `claude`, or `cursor`.
 - `run_id` (string) is present once the run whose outcome is reported back exists.
 - `delivered` (bool) is present and true once that outcome was handed to the requesting chat.
 - `report` (bool) is present and true on a hidden task whose outcome is reported back to the requesting chat (every hidden task created since #1507).
@@ -79,6 +83,7 @@ The agenda is work the Bot supervises: what the owner delegated to it or asked i
 - `targets` (array) of objects with `session_id` (an ordinary conversation, never a Bot chat) and/or `task_id` (a Task, a Bot task among them). A hidden Bot task is always a `task_id` target: given its conversation's `session_id`, Core stores its `task_id`. `[]` when none.
 - `origin_session_id` (string) is the Bot chat the item was created from. Omitted when empty.
 - `reply` (object) is present when the item was created from a channel message: `channel` (kind), `chat_id`, and `message_id`.
+- `project_id` (string) is present when the item was created from a project's Coordinator chat (or a side chat branched from one). Its messages go to that project's current Coordinator chat, and a channel post about it starts with the project's name in brackets.
 - `status` (string) is `active`, `waiting_owner` (parked until the owner answers), `completed`, or `cancelled`. The first two are open.
 - `stage` (string) is where the work stands and the next planned step, at most 1,000 characters. Omitted when empty.
 - `last_reported` (string) is what the owner was last told, at most 1,000 characters. Omitted when empty.
@@ -383,7 +388,7 @@ Request:
 ```
 
 - `title` (string, required). Trimmed. Empty is rejected. The body is one JSON object of at most 4096 bytes.
-- `from` (object, optional). Omit it, or send JSON `null`, for an empty side chat. `session_id` must be the current main chat (`main_session_id`), not an earlier main chat. `entry_id` must be non-empty and must be the assistant message that ends a finished turn on the main chat's current path: not inside a turn that is still running, not a turn whose tool call has no result yet, and not a message that is not that final assistant reply.
+- `from` (object, optional). Omit it, or send JSON `null`, for an empty side chat. `session_id` must be the current main chat (`main_session_id`), not an earlier main chat, or a project's current Coordinator chat; a branch of a Coordinator chat has that project's `project_id` and works in the project. `entry_id` must be non-empty and must be the assistant message that ends a finished turn on the main chat's current path: not inside a turn that is still running, not a turn whose tool call has no result yet, and not a message that is not that final assistant reply.
 - Other fields are ignored.
 
 Response: `200`
@@ -418,7 +423,7 @@ A branched side chat:
 Errors:
 
 - `400` chat title is required. Also for a body that is not JSON or is larger than 4096 bytes.
-- `400` a side chat branches from an entry of the Bot main chat
+- `400` a side chat branches from an entry of the Bot main chat or a Project's Coordinator chat
 - `400` message `<entry_id>` is not in the main conversation
 - `409` the main chat is busy; try again
 - `409` this turn is still running; branch from an earlier turn
@@ -433,9 +438,9 @@ Events: an empty side chat emits `sessions.changed` for the new conversation and
 ### POST /v1/bot/chats/{id}/new
 
 Auth: any key
-Effect: Sets aside the current main chat, or the chat a channel kind is bound to now, and binds a fresh chat with the same model setting and no history. The old chat stays listed, with `ended` set, and remains usable. Its memory review is queued, immediately if it is idle, otherwise once its current turn finishes. This route does not stop that turn and does not drop messages waiting on a channel.
+Effect: Sets aside the current main chat, the chat a channel kind is bound to now, or a project's current Coordinator chat, and binds a fresh chat with the same model setting and no history. A fresh Coordinator chat is bound to the same project and becomes its `coordinator_session_id`; the memory review of the old one writes that project's memory, and task reports and supervisor messages meant for the old one go to the new one. The old chat stays listed, with `ended` set, and remains usable. Its memory review is queued, immediately if it is idle, otherwise once its current turn finishes. This route does not stop that turn and does not drop messages waiting on a channel.
 
-Path: `id` session id of the current main chat, or of the chat a kind is bound to now (`channel_chats`).
+Path: `id` session id of the current main chat, of the chat a kind is bound to now (`channel_chats`), or of a project's current Coordinator chat.
 
 Request: no body.
 
@@ -455,7 +460,8 @@ A new main chat has title `Main chat` and `main_session_id` moves to it. A new c
 
 Errors:
 
-- `409` only the main chat or a channel's current chat can start a new chat. Also when this chat was already rotated by a concurrent `/new`.
+- `409` only the main chat, a channel's current chat or a Project's Coordinator chat can start a new chat. Also when this chat was already rotated by a concurrent `/new`.
+- `409` the project's primary directory is missing or cannot be used, or the project's Coordinator chat changed meanwhile
 - `500` the new chat could not be created, including `the chat changed meanwhile; try again` if the binding moved during the write
 
 Events: `sessions.changed` for the new conversation, and `bot.changed`. Also `sessions.changed` for the main chat when this call creates it.
@@ -481,6 +487,7 @@ Errors:
 - `404` session not found. The profile still lists the chat but the conversation is already gone. The next `GET /v1/bot` drops that record.
 - `409` turn already running
 - `409` delete the side chats branched from this chat first: `<titles>`. Titles are comma-separated. This applies to a former main chat that still has branched side chats.
+- `409` this is the Coordinator chat of the Project `"<name>"`; start a new chat with /new, then delete this one
 - `500` the conversation or the chat record could not be removed, including `Cannot remove conversation images` after the conversation itself was removed
 
 Events: `sessions.changed` and `bot.changed` on success.

@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.122.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.123.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -2149,7 +2149,7 @@ Events: `approvals.changed`
 
 # Bot and chat channels
 
-The Bot is one persistent assistant: a profile, a memory file, a main chat, optional side chats, one chat per connected channel kind, and background tasks. These routes are how a frontend reads and changes that state. Ordinary conversations are a different list; a Bot chat (the main chat, a side chat, a channel chat, or a hidden task conversation) is omitted from it. Read chats and tasks from `GET /v1/bot`.
+The Bot is one persistent assistant: a profile, a memory file, a main chat, optional side chats, one chat per connected channel kind, one Coordinator chat per project, and background tasks. These routes are how a frontend reads and changes that state. Ordinary conversations are a different list; a Bot chat (the main chat, a side chat, a channel chat, a project's Coordinator chat, a hidden task conversation, or a hidden worker's conversation) is omitted from it. Read chats and tasks from `GET /v1/bot`.
 
 A successful body is `application/json`. An error body is `{"error":"<message>","failure":{"code":"core_request_failed","message":"<message>","http_status":<status>,"details":"<message>"}}`. Channel routes send `Cache-Control: no-store`.
 
@@ -2163,7 +2163,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `name` (string) is `Gyres Bot` until a save. A save stores the trimmed name.
 - `description` (string) is built-in delegation guidance until the owner saves one. A stored description that is empty, or exactly `Your persistent local assistant.`, is filled with that guidance once, before any request. A save stores the trimmed description, including `""`, and a later empty save stays empty.
 - `main_session_id` (string) is the current main chat. The first read or write that needs it creates the chat.
-- `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the one model of every Bot chat (main chat, side chats, each channel kind's chat, including chats `/new` creates). Both `""` means the Settings default, then the first model Core can use. A Bot chat's own saved model is not used; `PUT /v1/sessions/{id}/settings` in any Bot chat sets this pair. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
+- `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the one model of every Bot chat (main chat, side chats, each channel kind's chat, including chats `/new` creates). Both `""` means the Settings default, then the first model Core can use. A Bot chat's own saved model is not used; `PUT /v1/sessions/{id}/settings` in any Bot chat sets this pair. A project's Coordinator chats (with `project_id`) run on that project's Coordinator model when the project has one (`coordinator_model` on the project), else on this pair; `PUT /v1/sessions/{id}/settings` there sets the project's Coordinator model unless its `target` is `bot` or `task`, and an empty choice clears it. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, always present) are the reasoning effort of the Bot model and of the task model. `""` is the model's default (no effort is sent). A task without a task model takes the Bot model with its effort. The first Core start after efforts were added copies the main chat's saved effort to an empty `bot_reasoning_effort` once, when that saved setting names the Bot model.
 - `task_provider_id` and `task_model` (strings, always present) choose the model for a new background task. Both `""` means the Bot model, then Core's default model resolution. A non-empty pair is pinned for every new task: the fallback chain is not used. A pair that names an external agent is ignored at task creation as if it were unset.
 - `system_prompt` (string) is the prompt Bot conversations receive: a fixed introduction, then ` Your name is <name>.` when the name is non-empty, then a space and the description when that is non-empty, then a fixed style section. Memory is not part of this string.
@@ -2171,6 +2171,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `channel_chats` (object) maps a kind (`feishu`, `discord`) to the session id of the chat that kind talks to now. Kinds with no chat yet are absent. `{}` when none are bound.
 - `chat_rotation` and `side_chat_branches` are always true: this Core accepts `POST /v1/bot/chats/{id}/new` and a `from` on `POST /v1/bot/chats`.
 - `tasks` (array) is newest first. See Tasks.
+- `projects` (array) is every registered project in the order of `GET /v1/projects`, for a project list next to the Bot's chats: `id`, `name`, `available` (the project's directories can be used now), `running` (its current Coordinator chat holds a live turn), and when set `folderless`, `bot_hidden`, `coordinator_session_id` (the current Coordinator chat, absent until `POST /v1/projects/{project}/coordinator` created it) and `run_state` (as for a chat). `[]` when none are registered.
 - `agenda` (array, read only) is the Bot's supervision agenda: open items first, then settled ones, each group most recently updated first. See Agenda. `[]` when empty.
 - `agenda_error` (string) is present only when the stored agenda could not be read at start. `agenda` is then `[]` and the Bot cannot change the agenda until the file is repaired or removed and Core restarts. The rest of the profile is unaffected.
 
@@ -2189,7 +2190,8 @@ Each chat:
 - `from_entry` (string) is present for a branched side chat: the main-chat message id it branched after.
 - `ready` (bool) is present only when true. A branched chat is ready once its model snapshot has been copied. A successful branch returns it true.
 - `channel` (string) is present for a chat created for a kind (`feishu` or `discord`). It stays after `/new` points the kind at a newer chat.
-- `ended` (string, UTC `YYYY-MM-DDTHH:MM:SSZ`) is present after `/new` moved the main-chat pointer or the kind's binding off this chat. The chat stays listed and usable.
+- `ended` (string, UTC `YYYY-MM-DDTHH:MM:SSZ`) is present after `/new` moved the main-chat pointer, the kind's binding or the project's Coordinator pointer off this chat. The chat stays listed and usable.
+- `project_id` (string) is present on a project's Coordinator chat, on one `/new` set aside, and on a side chat branched from one. The project's current Coordinator chat is the `coordinator_session_id` in `projects`, not the absence of `ended`. A Coordinator chat's `title` is the project's name.
 - `running` (bool) is true while a live turn holds the chat, including while that turn is `paused` or `pausing`.
 - `run_state` (string) while a live turn holds the chat is `running`, `pausing`, `paused`, or `waiting_children` (`running` that is waiting on child runs). When nothing is live but a task is still pending, it is the pending task's state as [`GET /v1/sessions/{id}/run-state`](runs.md#get-v1sessionsidrun-state) derives it: `paused`, `interrupted`, or `blocked`. Otherwise `idle`.
 
@@ -2210,9 +2212,11 @@ Each chat:
 - `result` (string) is present when `completed`: the last assistant text, or `Task completed. Open the task session for the full transcript.` when that text is empty.
 - `error` (string) is present when `failed`. It is the run's error, or `task stopped` when the run was aborted and reported no error. A task already set to `cancelled` is left as `cancelled`.
 - `created` and `updated` (strings, UTC `YYYY-MM-DDTHH:MM:SSZ`).
-- `visible` (bool) is present and true when the task runs in an ordinary conversation the owner can open. `POST /v1/bot/tasks` does not set it. Those tasks are not created by this route.
+- `visible` (bool) is present and true when the task runs in an ordinary conversation the owner can open: a visible task, or a hidden worker. `POST /v1/bot/tasks` does not set it. Those tasks are not created by this route.
+- `unlisted` (bool) is present and true on a hidden worker: a task the Bot started hidden but in a project or directory, on an external agent or on a named model (in a project's Coordinator chat, every hidden task, in that project). Its conversation is an ordinary one (no Bot prompt or tools; the Bot can send it more messages), yet it is omitted from `GET /v1/sessions`, archived included. List a project's workers with `GET /v1/projects/{project}/activity`; open one by its `session_id` as an ordinary conversation.
+- `project_id` and `cwd` (strings) are present when the task's conversation works in a project or a directory.
 - `adopted` (bool) is present and true when the Bot sent into an existing conversation it did not open. `prompt` is then `""`.
-- `executor` (string) is present when a visible task runs on an external agent: `codex`, `grok`, `pi`, `claude`, or `cursor`.
+- `executor` (string) is present when a visible task or a hidden worker runs on an external agent: `codex`, `grok`, `pi`, `claude`, or `cursor`.
 - `run_id` (string) is present once the run whose outcome is reported back exists.
 - `delivered` (bool) is present and true once that outcome was handed to the requesting chat.
 - `report` (bool) is present and true on a hidden task whose outcome is reported back to the requesting chat (every hidden task created since #1507).
@@ -2228,6 +2232,7 @@ The agenda is work the Bot supervises: what the owner delegated to it or asked i
 - `targets` (array) of objects with `session_id` (an ordinary conversation, never a Bot chat) and/or `task_id` (a Task, a Bot task among them). A hidden Bot task is always a `task_id` target: given its conversation's `session_id`, Core stores its `task_id`. `[]` when none.
 - `origin_session_id` (string) is the Bot chat the item was created from. Omitted when empty.
 - `reply` (object) is present when the item was created from a channel message: `channel` (kind), `chat_id`, and `message_id`.
+- `project_id` (string) is present when the item was created from a project's Coordinator chat (or a side chat branched from one). Its messages go to that project's current Coordinator chat, and a channel post about it starts with the project's name in brackets.
 - `status` (string) is `active`, `waiting_owner` (parked until the owner answers), `completed`, or `cancelled`. The first two are open.
 - `stage` (string) is where the work stands and the next planned step, at most 1,000 characters. Omitted when empty.
 - `last_reported` (string) is what the owner was last told, at most 1,000 characters. Omitted when empty.
@@ -2532,7 +2537,7 @@ Request:
 ```
 
 - `title` (string, required). Trimmed. Empty is rejected. The body is one JSON object of at most 4096 bytes.
-- `from` (object, optional). Omit it, or send JSON `null`, for an empty side chat. `session_id` must be the current main chat (`main_session_id`), not an earlier main chat. `entry_id` must be non-empty and must be the assistant message that ends a finished turn on the main chat's current path: not inside a turn that is still running, not a turn whose tool call has no result yet, and not a message that is not that final assistant reply.
+- `from` (object, optional). Omit it, or send JSON `null`, for an empty side chat. `session_id` must be the current main chat (`main_session_id`), not an earlier main chat, or a project's current Coordinator chat; a branch of a Coordinator chat has that project's `project_id` and works in the project. `entry_id` must be non-empty and must be the assistant message that ends a finished turn on the main chat's current path: not inside a turn that is still running, not a turn whose tool call has no result yet, and not a message that is not that final assistant reply.
 - Other fields are ignored.
 
 Response: `200`
@@ -2567,7 +2572,7 @@ A branched side chat:
 Errors:
 
 - `400` chat title is required. Also for a body that is not JSON or is larger than 4096 bytes.
-- `400` a side chat branches from an entry of the Bot main chat
+- `400` a side chat branches from an entry of the Bot main chat or a Project's Coordinator chat
 - `400` message `<entry_id>` is not in the main conversation
 - `409` the main chat is busy; try again
 - `409` this turn is still running; branch from an earlier turn
@@ -2582,9 +2587,9 @@ Events: an empty side chat emits `sessions.changed` for the new conversation and
 ### POST /v1/bot/chats/{id}/new
 
 Auth: any key
-Effect: Sets aside the current main chat, or the chat a channel kind is bound to now, and binds a fresh chat with the same model setting and no history. The old chat stays listed, with `ended` set, and remains usable. Its memory review is queued, immediately if it is idle, otherwise once its current turn finishes. This route does not stop that turn and does not drop messages waiting on a channel.
+Effect: Sets aside the current main chat, the chat a channel kind is bound to now, or a project's current Coordinator chat, and binds a fresh chat with the same model setting and no history. A fresh Coordinator chat is bound to the same project and becomes its `coordinator_session_id`; the memory review of the old one writes that project's memory, and task reports and supervisor messages meant for the old one go to the new one. The old chat stays listed, with `ended` set, and remains usable. Its memory review is queued, immediately if it is idle, otherwise once its current turn finishes. This route does not stop that turn and does not drop messages waiting on a channel.
 
-Path: `id` session id of the current main chat, or of the chat a kind is bound to now (`channel_chats`).
+Path: `id` session id of the current main chat, of the chat a kind is bound to now (`channel_chats`), or of a project's current Coordinator chat.
 
 Request: no body.
 
@@ -2604,7 +2609,8 @@ A new main chat has title `Main chat` and `main_session_id` moves to it. A new c
 
 Errors:
 
-- `409` only the main chat or a channel's current chat can start a new chat. Also when this chat was already rotated by a concurrent `/new`.
+- `409` only the main chat, a channel's current chat or a Project's Coordinator chat can start a new chat. Also when this chat was already rotated by a concurrent `/new`.
+- `409` the project's primary directory is missing or cannot be used, or the project's Coordinator chat changed meanwhile
 - `500` the new chat could not be created, including `the chat changed meanwhile; try again` if the binding moved during the write
 
 Events: `sessions.changed` for the new conversation, and `bot.changed`. Also `sessions.changed` for the main chat when this call creates it.
@@ -2630,6 +2636,7 @@ Errors:
 - `404` session not found. The profile still lists the chat but the conversation is already gone. The next `GET /v1/bot` drops that record.
 - `409` turn already running
 - `409` delete the side chats branched from this chat first: `<titles>`. Titles are comma-separated. This applies to a former main chat that still has branched side chats.
+- `409` this is the Coordinator chat of the Project `"<name>"`; start a new chat with /new, then delete this one
 - `500` the conversation or the chat record could not be removed, including `Cannot remove conversation images` after the conversation itself was removed
 
 Events: `sessions.changed` and `bot.changed` on success.
@@ -6296,6 +6303,7 @@ Response: `200`
 ```
 
 - `projects` is the saved projects in the order they were saved, each with `status`. An empty Core returns `[]`.
+- Each project may also carry its Bot fields, each present only when set: `coordinator_session_id` (the project's current Coordinator chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the project is left out of the Bot's project list; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on; absent: the Bot model).
 - `host_os` is the operating system of the machine running Core, such as `darwin`, `linux`, or `windows`.
 
 Errors:
@@ -6324,6 +6332,7 @@ Request:
 - `folderless` (boolean) true creates a project with no folders. `primary` and every entry of `roots` must then be empty or absent. Core sets `primary` and `roots` to the new library path in the response.
 - Without `folderless`, `primary` (string) is the main directory. `roots` (array of strings) lists additional directories. Each path is trimmed, then `.`, `..`, and extra separators are removed. It must be an absolute directory on the machine running Core and must be listable. The same path is kept once. At most 32 directories, including the primary.
 - A project may be saved again later under a name it already has even when another project also has that name. Any other save that matches another project's name is refused.
+- Optional Bot fields: `bot_hidden` (boolean) and the Coordinator model `coordinator_provider_id` with `coordinator_model` (strings, sent together; both `""` clear it so the Coordinator follows the Bot model) and `coordinator_reasoning_effort` (string, needs a model). An external agent cannot be the Coordinator model. `coordinator_session_id` is set by Core only and ignored here.
 
 Response: `200`
 
@@ -6338,10 +6347,14 @@ Errors:
 - `400` use an absolute directory path on the Core host
 - `400` invalid project cwd "<path>": the directory is missing, is not a directory, or cannot be listed
 - `400` at most 32 project directories
+- `400` coordinator_provider_id and coordinator_model must be set together
+- `400` coordinator_reasoning_effort needs a model
+- `400` Bot conversations run on a configured provider, not an external agent
+- `400` the Coordinator model is not an enabled provider's active model (the message says why)
 - `400` the project could not be saved (the message says why)
 - `409` another project already has this name
 
-Events: none.
+Events: `bot.changed`.
 
 ### PUT /v1/projects/{project}
 
@@ -6358,6 +6371,8 @@ Request:
 
 - Same object and limits as `POST /v1/projects`. The id in the body is ignored; the path id is the project being saved.
 - Omitted `folderless` means false. A project without folders is returned with `primary` and `roots` set to the library. Sending that object back is rejected. To save it again without folders, send `folderless: true`, `primary` `""`, and `roots` `[]`.
+- The Bot fields are optional as for create: an omitted one keeps its saved value, so a client that edits only the name and folders never changes them. The Coordinator chat is kept.
+- A body with only Bot fields (no `name`, `primary`, `roots` or `folderless`), such as `{"bot_hidden": true}`, changes those fields alone and does not check the folders again, so it works while a folder is missing.
 
 Response: `200`
 
@@ -6366,16 +6381,17 @@ The saved project object, as for `POST /v1/projects`.
 Errors:
 
 - `400` invalid project
-- `400` the same directory and name failures as create
+- `400` the same directory, name and Bot field failures as create
 - `400` project not found
+- `404` project not found (a body with only Bot fields)
 - `409` another project already has this name
 
-Events: none.
+Events: `bot.changed`; `session.settings` for the Bot's chats when the Coordinator model changed.
 
 ### DELETE /v1/projects/{project}
 
 Auth: any key
-Effect: Forgets the registration. Directories, library files, instructions, project memory, and conversation bindings are left in place. A later create with the same primary path, or the same name for a project without folders, can take this id again.
+Effect: Forgets the registration. Directories, library files, instructions, project memory, and conversation bindings are left in place. The project's Coordinator chats stay Bot chats (listed in `GET /v1/bot`'s `chats`). A later create with the same primary path, or the same name for a project without folders, can take this id again, and its Coordinator chat with it.
 
 Path: `project` project id.
 
@@ -6392,7 +6408,250 @@ Errors:
 - `404` project not found
 - `500` the registration could not be updated
 
+Events: `bot.changed`.
+
+### POST /v1/projects/{project}/coordinator
+
+Auth: any key
+Effect: Returns the project's Coordinator chat, creating it on first use. A Coordinator chat is a Bot chat bound to the project's workspace: it runs on the project's Coordinator model or the Bot model (never an external agent), gets the Bot's prompt and tools together with the project's instructions, memory, library and skills, and is not listed by `GET /v1/sessions`. The saved chat is kept while its conversation exists and is bound to the project; otherwise a Coordinator chat this project had before is taken back, or a new one is created and saved as the project's `coordinator_session_id`. Calling it again returns the same chat. `POST /v1/bot/chats/{id}/new` replaces it with a fresh one.
+
+Path: `project` project id.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{ "session_id": "2026-11-16T04-00-00_5b0c2a8e-4f4e-4d55-9a37-0d0f0c7b3a11", "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b" }
+```
+
+Errors:
+
+- `404` project not found
+- `409` the project's primary directory is missing or cannot be used (the message says which)
+- `409` the project's Coordinator chat changed meanwhile; try again
+- `500` the chat could not be created or saved
+- `503` the Bot is not available
+
+Events: `bot.changed`.
+
+### GET /v1/projects/{project}/activity
+
+Auth: any key
+Effect: Returns what works and listens for the project, for a Coordinator view: the Bot's tasks and workers in the project, standalone Tasks of the project while an attempt runs, the open agenda items the project's chats created and the active scheduled plans of the project. Read only. Refetch it on `bot.changed`, `schedules.changed`, `approvals.changed` and run ends.
+
+Path: `project` project id.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b",
+  "workers": [
+    {
+      "id": "bot_8d1f0a2b3c4d5e6f708192a3b4c5d6e7",
+      "session_id": "2026-11-16T05-00-00_bot_8d1f0a2b3c4d5e6f708192a3b4c5d6e7",
+      "title": "Fix the parser",
+      "kind": "bot_task",
+      "executor": "codex",
+      "provider_id": "codex",
+      "model": "gpt-5.5",
+      "visible": false,
+      "status": "running",
+      "waiting_approval": true,
+      "agenda_id": "ag_0123456789abcdef",
+      "created": "2026-11-16T05:00:00Z",
+      "updated": "2026-11-16T05:02:00Z"
+    }
+  ],
+  "listening": [
+    { "id": "ag_0123456789abcdef", "kind": "agenda", "title": "Keep CI green", "status": "active", "next": "2026-11-16T06:00:00Z" },
+    { "id": "job_1", "kind": "schedule", "title": "Nightly check", "status": "active", "next": "2026-11-17T02:00:00Z" }
+  ],
+  "working_count": 1,
+  "listening_count": 2
+}
+```
+
+- `workers` lists the unsettled ones and those waiting on an approval first, then up to 30 settled ones, each group by `updated`, newest first. `kind` is `bot_task` (a task a Bot chat started: a hidden worker, `visible` false, or a visible task, `visible` true) or `task` (a standalone Task's running attempt; `id` is the Task's id and `session_id` the attempt's conversation). Conversations the Bot only sent a message to are not listed. `executor` is `gyres` for Gyres' own models, otherwise the external agent (`codex`, `grok`, `pi`, `claude`, `cursor`). `status` is a Bot task status (`queued`, `running`, `paused`, `completed`, `failed`, `stopped`, `cancelled`); a standalone Task's attempt is `running`. `waiting_approval` is true while an approval card of the conversation (or of its child agents) waits for a person. `agenda_id` is present when an open agenda item targets the worker.
+- `listening`: agenda items (`kind` `agenda`) with `status` `active` or `waiting_owner` and `next` their next check; scheduled plans (`kind` `schedule`) that are active, for the project directly, for a conversation bound to the project, or advancing a Task of the project, with `next` their next run.
+- `working_count` is the number of workers listed first; `listening_count` the length of `listening`.
+
+Errors:
+
+- `404` project not found
+- `500` the registration or the tasks could not be read
+
 Events: none.
+
+### GET /v1/projects/{project}/list
+
+Auth: any key
+Effect: Returns the project's list: short items for the project's work, each with a key such as `GYR-12`, a stored status, links to the work, and an effective status Core derives from that work on every read. Archived items are left out unless `archived=1`. Read only. Refetch it on `project_list.changed`, and also on `bot.changed`, `approvals.changed` and run ends, because the effective status moves with the linked work.
+
+Path: `project` project id.
+
+Query: `archived` (`1` includes archived items).
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b",
+  "prefix": "GYR",
+  "library": "/data/projects/3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b/library",
+  "items": [
+    {
+      "id": "li_0123456789abcdef",
+      "key": "GYR-1",
+      "title": "Ship the right panel",
+      "note": "List and Library only",
+      "stored_status": "queued",
+      "effective_status": "for_review",
+      "review_reason": "ready",
+      "links": {
+        "task_ids": ["bot_8d1f0a2b3c4d5e6f708192a3b4c5d6e7"],
+        "session_ids": [],
+        "library_files": ["reports/out.md"],
+        "prs": [{ "url": "https://github.com/example/repo/pull/12", "number": 12, "state": "open" }]
+      },
+      "workers": [],
+      "children_done": 1,
+      "children_total": 2,
+      "status_at": "2026-11-16T05:00:00Z",
+      "linked_at": "2026-11-16T05:10:00Z",
+      "created_at": "2026-11-16T05:00:00Z",
+      "updated_at": "2026-11-16T05:10:00Z"
+    }
+  ]
+}
+```
+
+- `prefix` is the prefix new keys get: 2 to 5 capital letters, derived from the project's name until it is set (the initials of its Latin words, or the first three letters of one word, else `PRJ`). Keys are never reused.
+- `library` is the project's library path. `library_files` are relative to it, with `/`.
+- `parent_id`, present on a child, is its parent's `id`. Items nest one level only.
+- `stored_status` is the status last given by hand or by the Coordinator: `queued`, `in_progress`, `for_review`, `done` or `archived`. `status_at` is when a status was last given, also when the same one is given again; `linked_at` when a link was last added. `completed_at` is present while the stored status is `done` or `archived` after `done`.
+- `effective_status` is derived in this order: `archived` and `done` as stored; `done` (`done_reason` `merged`) when every linked PR is `merged` and no linked work runs; `for_review` (`review_reason` `decision`) when a linked worker or conversation waits on an approval or its agenda item waits for the owner; `in_progress` while linked work is queued, running or paused; `for_review` with `failed` when linked work failed, `marked` when stored so, `ready` when linked work completed, or a linked library file or an `open` PR exists; otherwise the stored status. Finished work, files and PRs (merged ones included) count only when they are newer than `status_at` or were linked since then (links sent again unchanged do not count), so an item sent back to `queued` stays there until something new arrives. A library file counts when it changed after `status_at`.
+- A parent with children: `children_total` and `children_done` count its children that are not archived. It is `done` when every child is and a child got its status or a link after the parent's `status_at` (a parent sent back after its children finished keeps its stored status), and otherwise takes the most pressing of its own status and its children's (`for_review`, then `in_progress`, then `queued`; `review_reason` `child` when a child is for review).
+- `workers` has one row per linked task Core still knows, shaped as in `GET /v1/projects/{project}/activity`. A standalone Task between attempts has no `session_id` and the status of its last outcome.
+- PR states are what was last sent; Core does not look them up.
+
+Errors:
+
+- `404` project not found
+- `500` the registration, the list or the tasks could not be read
+
+Events: none.
+
+### POST /v1/projects/{project}/list
+
+Auth: any key
+Effect: Adds an item with the next key, `queued` unless `stored_status` says otherwise.
+
+Path: `project` project id.
+
+Request:
+
+```json
+{
+  "title": "Ship the right panel",
+  "note": "List and Library only",
+  "parent_id": "GYR-1",
+  "stored_status": "queued",
+  "links": { "task_ids": [], "session_ids": [], "library_files": ["plans/panel.md"], "prs": [] }
+}
+```
+
+- The body is one JSON object of at most 256 KiB. `title` is required, at most 200 characters; runs of whitespace become one space. `note` is optional, at most 2000 characters.
+- `parent_id` is the id or key of a top-level item.
+- `links` (and `add_links`, which means the same here) name the work: `task_ids` of Tasks Core knows (a Bot task's id or a standalone Task's), `session_ids` of existing conversations, `library_files` relative to the library or absolute inside it, and `prs` with an `http(s)` `url`, an optional `number`, `repo` and `state` (`open`, `merged`, `closed`). At most 20 of each.
+
+Response: `201` the item as `GET` lists it.
+
+Errors:
+
+- `400` the JSON could not be read, the title is missing or too long, the note is too long, the status is unknown, the parent is missing or is itself a child, a library path is outside the library, a Task or conversation is unknown, a PR is malformed, too many links, or the list holds 500 items and none is archived
+- `404` project not found
+- `500` the list could not be saved
+
+Events: `project_list.changed`.
+
+### PATCH /v1/projects/{project}/list
+
+Auth: any key
+Effect: Sets the prefix of keys given from now on. Existing keys stay as they are.
+
+Path: `project` project id.
+
+Request:
+
+```json
+{ "prefix": "GYR" }
+```
+
+- `prefix` is 2 to 5 capital letters `A`-`Z`.
+
+Response: `200` the list as `GET` returns it.
+
+Errors:
+
+- `400` the prefix is not 2 to 5 capital letters
+- `404` project not found
+- `500` the list could not be saved
+
+Events: `project_list.changed`.
+
+### PATCH /v1/projects/{project}/list/{item}
+
+Auth: any key
+Effect: Changes one item. Fields left out are kept.
+
+Path: `project` project id. `item` the item's id or key (any letter case).
+
+Request:
+
+```json
+{
+  "title": "Ship the right panel",
+  "stored_status": "done",
+  "add_links": { "task_ids": ["bot_8d1f0a2b3c4d5e6f708192a3b4c5d6e7"] }
+}
+```
+
+- `title`, `note`, `parent_id` (`""` makes it top-level) and `stored_status` as in `POST`. An item that has children cannot get a parent. Giving a status always sets `status_at`, also when it is the same status. Archiving an item makes its children that are not archived top-level items.
+- `add_links` appends what is new; a PR whose `url` is linked already takes the sent `number`, `repo` and `state`. `links` replaces all links.
+
+Response: `200` the item as `GET` lists it, archived or not.
+
+Errors:
+
+- `400` as for `POST`
+- `404` project or item not found
+- `500` the list could not be saved
+
+Events: `project_list.changed`.
+
+### DELETE /v1/projects/{project}/list/{item}
+
+Auth: any key
+Effect: Removes one item. Its children stay, as top-level items. Its key is not reused.
+
+Path: `project` project id. `item` the item's id or key.
+
+Request: no body.
+
+Response: `204` no body.
+
+Errors:
+
+- `404` project or item not found
+- `500` the list could not be saved
+
+Events: `project_list.changed`.
 
 ### POST /v1/projects/{project}/reveal
 
@@ -6505,6 +6764,38 @@ Errors:
 
 - `404` project not found
 - `500` project library unavailable, or the directory could not be created (the message says why)
+
+Events: none.
+
+### GET /v1/projects/{project}/library
+
+Auth: any key
+Effect: Lists the files in the project's library, newest first, creating the library directory when it is missing. By default names that start with `.` (at any depth) and the top-level `internal` and `tmp` folders are left out. Symbolic links are not followed or listed. The response sends `Cache-Control: no-store`.
+
+Path: `project` project id.
+
+Query: `all` (`1` lists everything).
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "path": "/data/projects/3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b/library",
+  "files": [
+    { "path": "/data/projects/3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b/library/reports/weekly.md", "rel": "reports/weekly.md", "size": 2048, "modified": "2026-11-16T05:00:00Z" }
+  ],
+  "truncated": false
+}
+```
+
+- `rel` is relative to the library, with `/`. `modified` is RFC 3339 in UTC. At most 2000 files are listed; `truncated` is then `true`.
+
+Errors:
+
+- `404` project not found
+- `500` the library cannot be created or read
 
 Events: none.
 
@@ -8785,7 +9076,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 
 ## List rows
 
-`GET /v1/sessions` without `archived=true` returns live rows, newest `modified` first (string order, which is chronological for the timestamp above). Pinned conversations stay in that order; `pinned_at` is only a marker. Bot conversations are omitted, and so is a child conversation whose parent still exists. A side lane is not its own row.
+`GET /v1/sessions` without `archived=true` returns live rows, newest `modified` first (string order, which is chronological for the timestamp above). Pinned conversations stay in that order; `pinned_at` is only a marker. Bot conversations are omitted (hidden workers' conversations too: see the Bot tasks' `unlisted`), and so is a child conversation whose parent still exists. A side lane is not its own row.
 
 ```json
 {
@@ -8817,7 +9108,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 - `origin`, when present on a list row, is only a Bot origin (below). A terminal import's origin is not on the list.
 - `unseen_kind` is omitted when `unseen` is `""`. When present it is `user`, `scheduled`, `bot_task`, `external`, `wake`, `goal`, or `recovery`.
 
-`archived=true` (exactly that string; `1`, `True`, and a missing parameter are the live list) returns archived rows, newest `archived_at` first. Bot conversations are omitted. Side lanes are not rows.
+`archived=true` (exactly that string; `1`, `True`, and a missing parameter are the live list) returns archived rows, newest `archived_at` first. Bot conversations and hidden workers' conversations are omitted. Side lanes are not rows.
 
 ```json
 {
@@ -9234,6 +9525,7 @@ Errors:
 - `409` turn already running
 - `409` `delete the side chats branched from this chat first: ` followed by those chats' titles
 - `409` the conversation is one of the Bot supervisor's hidden sessions (Core prunes them itself)
+- `409` the conversation is a project's current Coordinator chat (`POST /v1/bot/chats/{id}/new` sets it aside first)
 - `500` the conversation could not be removed. `Cannot remove conversation images` means the conversation itself is already gone and only its images could not be removed. A failure before removal leaves the conversation in place.
 
 Events: deleting a main conversation publishes `sessions.changed`, and also `bot.changed` when the id is a Bot chat. Closing a lane publishes `session.messages` and `sessions.changed`, and also `bot.changed` when this Core keeps Bot state, even if the lane was not a Bot chat. `bot.changed` has no `session_id`.
@@ -9574,7 +9866,7 @@ Response: `200`
 
 - `settings` is `null` when no model is saved. A title with no model still returns `null`. When present, `provider_id`, `model`, `reasoning_effort`, `speed`, and `updated_at` are always included. Empty `reasoning_effort` or `speed` means the model's default. `updated_by` is the id of the access key that saved the choice, never the secret, and is omitted when unset. `title` is omitted when unset. `PUT` settings does not change `title`.
 - `effective` is the saved choice, else the Settings default, else the first available model. A saved external-agent model on a Bot conversation counts as unset. The four fields are always present; `reasoning_effort` and `speed` may be `""`.
-- In a Bot chat (main chat, side chat or channel chat) the conversation has no model of its own: `settings` is the Bot model (or `null` when unset), `effective` is the Bot model, else the Settings default, else the first available model, and `bot` is `{"scope": "bot", "bot_model", "task_model"}`, each model `{provider_id, model, reasoning_effort, speed}` or `null` when unset. `bot` is omitted outside Bot chats.
+- In a Bot chat (main chat, side chat or channel chat) the conversation has no model of its own: `settings` is the Bot model (or `null` when unset), `effective` is the Bot model, else the Settings default, else the first available model, and `bot` is `{"scope": "bot", "bot_model", "task_model"}`, each model `{provider_id, model, reasoning_effort, speed}` or `null` when unset. `bot` is omitted outside Bot chats. In a project's Coordinator chat (or a chat branched from or set aside by one) `settings` and `effective` are the project's Coordinator model when it has one, and `bot` is `{"scope": "project", "project_id", "project_model", "bot_model", "task_model"}` with `project_model` `null` while the chat follows the Bot model.
 
 Errors:
 
@@ -9603,7 +9895,7 @@ Request:
 
 - `provider_id` and `model` (strings) are required and must name a model that is available now.
 - `reasoning_effort` and `speed` (strings, optional). A non-empty `reasoning_effort` must be one of that model's `reasoning_efforts` (`GET /v1/models`); for a provider model those are the levels its model list reported, sent as Chat Completions `reasoning_effort` or Responses `reasoning.effort`, and `""` sends none. `speed` must be empty for a provider model. For an external agent, `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
-- `target` (string, optional) applies only in a Bot chat: `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). Outside Bot chats it is ignored.
+- `target` (string, optional) applies only in a Bot chat: `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). In a project's Coordinator chat the default is `"project"`: it sets that project's Coordinator model (`provider_id` and `model` both `""` clear it, so its Coordinator chats follow the Bot model). Outside Bot chats it is ignored.
 - The body is at most 4096 bytes. Other fields are ignored.
 
 A conversation an external agent owns can stay on that agent. Pointing it at a provider, or at a different external agent, is refused. A Bot conversation cannot be pointed at an external agent.
@@ -9614,7 +9906,7 @@ Errors:
 
 - `404` session not found
 - `400` invalid json
-- `400` `target must be "bot" or "task"`
+- `400` `target must be "bot" or "task" (or "project" in a Project's Coordinator chat)`
 - `400` provider_id and model are required
 - `400` unknown or unavailable model
 - `400` speed currently requires an external agent model
@@ -9727,6 +10019,7 @@ Errors:
 - `409` `{Label} owns this conversation history and workspace; start a new conversation to change them`
 - `404` session not found
 - `409` stop the current turn before changing workspace
+- `409` a Project's Coordinator chat stays in its Project
 - `400` invalid workspace (body is not the object above, or is larger than 65536 bytes)
 - `400` the directory or project cannot be bound (`project not found`, `current directory must be inside a project directory`, `invalid project cwd "..."`, `use an absolute directory path on the Core host`, or the library or conversation directory could not be created)
 
@@ -11653,7 +11946,7 @@ Sent once when the stream opens, before any other frame.
   "version": "1.4.0",
   "instance_id": "0123456789abcdef0123456789abcdef",
   "storage_space": { "data": "ok", "home": "low" },
-  "publishes": ["session.task", "bot.changed", "session.agent_usage", "tls.changed", "session.wake", "peers.changed", "session.artifacts"]
+  "publishes": ["session.task", "bot.changed", "session.agent_usage", "tls.changed", "session.wake", "peers.changed", "session.artifacts", "project_list.changed"]
 }
 ```
 
@@ -11902,6 +12195,18 @@ Refetch: `GET /v1/sessions/{id}/recap`.
 ```
 
 Refetch: `GET /v1/sessions/{id}/artifacts` (and, for a shown artifact, its `artifacts/versions`).
+
+### project_list.changed
+
+A project's list was written: an item added, changed or removed, or the key prefix set (through the HTTP routes or the project's Coordinator). Its effective statuses also move with the linked work without this event; see `GET /v1/projects/{project}/list`. Optional: listed in `ready.publishes`.
+
+```json
+{ "type": "project_list.changed", "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b" }
+```
+
+No `session_id`. `project_id` is the project.
+
+Refetch: `GET /v1/projects/{project}/list`.
 
 ### session.agent_usage
 

@@ -62,7 +62,7 @@ Sent once when the stream opens, before any other frame.
   "version": "1.4.0",
   "instance_id": "0123456789abcdef0123456789abcdef",
   "storage_space": { "data": "ok", "home": "low" },
-  "publishes": ["session.task", "bot.changed", "session.agent_usage", "tls.changed", "session.wake", "peers.changed", "session.artifacts"]
+  "publishes": ["session.task", "bot.changed", "session.agent_usage", "tls.changed", "session.wake", "peers.changed", "session.artifacts", "project_list.changed"]
 }
 ```
 
@@ -311,6 +311,18 @@ Refetch: `GET /v1/sessions/{id}/recap`.
 ```
 
 Refetch: `GET /v1/sessions/{id}/artifacts` (and, for a shown artifact, its `artifacts/versions`).
+
+### project_list.changed
+
+A project's list was written: an item added, changed or removed, or the key prefix set (through the HTTP routes or the project's Coordinator). Its effective statuses also move with the linked work without this event; see `GET /v1/projects/{project}/list`. Optional: listed in `ready.publishes`.
+
+```json
+{ "type": "project_list.changed", "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b" }
+```
+
+No `session_id`. `project_id` is the project.
+
+Refetch: `GET /v1/projects/{project}/list`.
 
 ### session.agent_usage
 

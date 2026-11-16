@@ -110,6 +110,7 @@ Response: `200`
 ```
 
 - `projects` is the saved projects in the order they were saved, each with `status`. An empty Core returns `[]`.
+- Each project may also carry its Bot fields, each present only when set: `coordinator_session_id` (the project's current Coordinator chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the project is left out of the Bot's project list; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on; absent: the Bot model).
 - `host_os` is the operating system of the machine running Core, such as `darwin`, `linux`, or `windows`.
 
 Errors:
@@ -138,6 +139,7 @@ Request:
 - `folderless` (boolean) true creates a project with no folders. `primary` and every entry of `roots` must then be empty or absent. Core sets `primary` and `roots` to the new library path in the response.
 - Without `folderless`, `primary` (string) is the main directory. `roots` (array of strings) lists additional directories. Each path is trimmed, then `.`, `..`, and extra separators are removed. It must be an absolute directory on the machine running Core and must be listable. The same path is kept once. At most 32 directories, including the primary.
 - A project may be saved again later under a name it already has even when another project also has that name. Any other save that matches another project's name is refused.
+- Optional Bot fields: `bot_hidden` (boolean) and the Coordinator model `coordinator_provider_id` with `coordinator_model` (strings, sent together; both `""` clear it so the Coordinator follows the Bot model) and `coordinator_reasoning_effort` (string, needs a model). An external agent cannot be the Coordinator model. `coordinator_session_id` is set by Core only and ignored here.
 
 Response: `200`
 
@@ -152,10 +154,14 @@ Errors:
 - `400` use an absolute directory path on the Core host
 - `400` invalid project cwd "<path>": the directory is missing, is not a directory, or cannot be listed
 - `400` at most 32 project directories
+- `400` coordinator_provider_id and coordinator_model must be set together
+- `400` coordinator_reasoning_effort needs a model
+- `400` Bot conversations run on a configured provider, not an external agent
+- `400` the Coordinator model is not an enabled provider's active model (the message says why)
 - `400` the project could not be saved (the message says why)
 - `409` another project already has this name
 
-Events: none.
+Events: `bot.changed`.
 
 ### PUT /v1/projects/{project}
 
@@ -172,6 +178,8 @@ Request:
 
 - Same object and limits as `POST /v1/projects`. The id in the body is ignored; the path id is the project being saved.
 - Omitted `folderless` means false. A project without folders is returned with `primary` and `roots` set to the library. Sending that object back is rejected. To save it again without folders, send `folderless: true`, `primary` `""`, and `roots` `[]`.
+- The Bot fields are optional as for create: an omitted one keeps its saved value, so a client that edits only the name and folders never changes them. The Coordinator chat is kept.
+- A body with only Bot fields (no `name`, `primary`, `roots` or `folderless`), such as `{"bot_hidden": true}`, changes those fields alone and does not check the folders again, so it works while a folder is missing.
 
 Response: `200`
 
@@ -180,16 +188,17 @@ The saved project object, as for `POST /v1/projects`.
 Errors:
 
 - `400` invalid project
-- `400` the same directory and name failures as create
+- `400` the same directory, name and Bot field failures as create
 - `400` project not found
+- `404` project not found (a body with only Bot fields)
 - `409` another project already has this name
 
-Events: none.
+Events: `bot.changed`; `session.settings` for the Bot's chats when the Coordinator model changed.
 
 ### DELETE /v1/projects/{project}
 
 Auth: any key
-Effect: Forgets the registration. Directories, library files, instructions, project memory, and conversation bindings are left in place. A later create with the same primary path, or the same name for a project without folders, can take this id again.
+Effect: Forgets the registration. Directories, library files, instructions, project memory, and conversation bindings are left in place. The project's Coordinator chats stay Bot chats (listed in `GET /v1/bot`'s `chats`). A later create with the same primary path, or the same name for a project without folders, can take this id again, and its Coordinator chat with it.
 
 Path: `project` project id.
 
@@ -206,7 +215,250 @@ Errors:
 - `404` project not found
 - `500` the registration could not be updated
 
+Events: `bot.changed`.
+
+### POST /v1/projects/{project}/coordinator
+
+Auth: any key
+Effect: Returns the project's Coordinator chat, creating it on first use. A Coordinator chat is a Bot chat bound to the project's workspace: it runs on the project's Coordinator model or the Bot model (never an external agent), gets the Bot's prompt and tools together with the project's instructions, memory, library and skills, and is not listed by `GET /v1/sessions`. The saved chat is kept while its conversation exists and is bound to the project; otherwise a Coordinator chat this project had before is taken back, or a new one is created and saved as the project's `coordinator_session_id`. Calling it again returns the same chat. `POST /v1/bot/chats/{id}/new` replaces it with a fresh one.
+
+Path: `project` project id.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{ "session_id": "2026-11-16T04-00-00_5b0c2a8e-4f4e-4d55-9a37-0d0f0c7b3a11", "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b" }
+```
+
+Errors:
+
+- `404` project not found
+- `409` the project's primary directory is missing or cannot be used (the message says which)
+- `409` the project's Coordinator chat changed meanwhile; try again
+- `500` the chat could not be created or saved
+- `503` the Bot is not available
+
+Events: `bot.changed`.
+
+### GET /v1/projects/{project}/activity
+
+Auth: any key
+Effect: Returns what works and listens for the project, for a Coordinator view: the Bot's tasks and workers in the project, standalone Tasks of the project while an attempt runs, the open agenda items the project's chats created and the active scheduled plans of the project. Read only. Refetch it on `bot.changed`, `schedules.changed`, `approvals.changed` and run ends.
+
+Path: `project` project id.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b",
+  "workers": [
+    {
+      "id": "bot_8d1f0a2b3c4d5e6f708192a3b4c5d6e7",
+      "session_id": "2026-11-16T05-00-00_bot_8d1f0a2b3c4d5e6f708192a3b4c5d6e7",
+      "title": "Fix the parser",
+      "kind": "bot_task",
+      "executor": "codex",
+      "provider_id": "codex",
+      "model": "gpt-5.5",
+      "visible": false,
+      "status": "running",
+      "waiting_approval": true,
+      "agenda_id": "ag_0123456789abcdef",
+      "created": "2026-11-16T05:00:00Z",
+      "updated": "2026-11-16T05:02:00Z"
+    }
+  ],
+  "listening": [
+    { "id": "ag_0123456789abcdef", "kind": "agenda", "title": "Keep CI green", "status": "active", "next": "2026-11-16T06:00:00Z" },
+    { "id": "job_1", "kind": "schedule", "title": "Nightly check", "status": "active", "next": "2026-11-17T02:00:00Z" }
+  ],
+  "working_count": 1,
+  "listening_count": 2
+}
+```
+
+- `workers` lists the unsettled ones and those waiting on an approval first, then up to 30 settled ones, each group by `updated`, newest first. `kind` is `bot_task` (a task a Bot chat started: a hidden worker, `visible` false, or a visible task, `visible` true) or `task` (a standalone Task's running attempt; `id` is the Task's id and `session_id` the attempt's conversation). Conversations the Bot only sent a message to are not listed. `executor` is `gyres` for Gyres' own models, otherwise the external agent (`codex`, `grok`, `pi`, `claude`, `cursor`). `status` is a Bot task status (`queued`, `running`, `paused`, `completed`, `failed`, `stopped`, `cancelled`); a standalone Task's attempt is `running`. `waiting_approval` is true while an approval card of the conversation (or of its child agents) waits for a person. `agenda_id` is present when an open agenda item targets the worker.
+- `listening`: agenda items (`kind` `agenda`) with `status` `active` or `waiting_owner` and `next` their next check; scheduled plans (`kind` `schedule`) that are active, for the project directly, for a conversation bound to the project, or advancing a Task of the project, with `next` their next run.
+- `working_count` is the number of workers listed first; `listening_count` the length of `listening`.
+
+Errors:
+
+- `404` project not found
+- `500` the registration or the tasks could not be read
+
 Events: none.
+
+### GET /v1/projects/{project}/list
+
+Auth: any key
+Effect: Returns the project's list: short items for the project's work, each with a key such as `GYR-12`, a stored status, links to the work, and an effective status Core derives from that work on every read. Archived items are left out unless `archived=1`. Read only. Refetch it on `project_list.changed`, and also on `bot.changed`, `approvals.changed` and run ends, because the effective status moves with the linked work.
+
+Path: `project` project id.
+
+Query: `archived` (`1` includes archived items).
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b",
+  "prefix": "GYR",
+  "library": "/data/projects/3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b/library",
+  "items": [
+    {
+      "id": "li_0123456789abcdef",
+      "key": "GYR-1",
+      "title": "Ship the right panel",
+      "note": "List and Library only",
+      "stored_status": "queued",
+      "effective_status": "for_review",
+      "review_reason": "ready",
+      "links": {
+        "task_ids": ["bot_8d1f0a2b3c4d5e6f708192a3b4c5d6e7"],
+        "session_ids": [],
+        "library_files": ["reports/out.md"],
+        "prs": [{ "url": "https://github.com/example/repo/pull/12", "number": 12, "state": "open" }]
+      },
+      "workers": [],
+      "children_done": 1,
+      "children_total": 2,
+      "status_at": "2026-11-16T05:00:00Z",
+      "linked_at": "2026-11-16T05:10:00Z",
+      "created_at": "2026-11-16T05:00:00Z",
+      "updated_at": "2026-11-16T05:10:00Z"
+    }
+  ]
+}
+```
+
+- `prefix` is the prefix new keys get: 2 to 5 capital letters, derived from the project's name until it is set (the initials of its Latin words, or the first three letters of one word, else `PRJ`). Keys are never reused.
+- `library` is the project's library path. `library_files` are relative to it, with `/`.
+- `parent_id`, present on a child, is its parent's `id`. Items nest one level only.
+- `stored_status` is the status last given by hand or by the Coordinator: `queued`, `in_progress`, `for_review`, `done` or `archived`. `status_at` is when a status was last given, also when the same one is given again; `linked_at` when a link was last added. `completed_at` is present while the stored status is `done` or `archived` after `done`.
+- `effective_status` is derived in this order: `archived` and `done` as stored; `done` (`done_reason` `merged`) when every linked PR is `merged` and no linked work runs; `for_review` (`review_reason` `decision`) when a linked worker or conversation waits on an approval or its agenda item waits for the owner; `in_progress` while linked work is queued, running or paused; `for_review` with `failed` when linked work failed, `marked` when stored so, `ready` when linked work completed, or a linked library file or an `open` PR exists; otherwise the stored status. Finished work, files and PRs (merged ones included) count only when they are newer than `status_at` or were linked since then (links sent again unchanged do not count), so an item sent back to `queued` stays there until something new arrives. A library file counts when it changed after `status_at`.
+- A parent with children: `children_total` and `children_done` count its children that are not archived. It is `done` when every child is and a child got its status or a link after the parent's `status_at` (a parent sent back after its children finished keeps its stored status), and otherwise takes the most pressing of its own status and its children's (`for_review`, then `in_progress`, then `queued`; `review_reason` `child` when a child is for review).
+- `workers` has one row per linked task Core still knows, shaped as in `GET /v1/projects/{project}/activity`. A standalone Task between attempts has no `session_id` and the status of its last outcome.
+- PR states are what was last sent; Core does not look them up.
+
+Errors:
+
+- `404` project not found
+- `500` the registration, the list or the tasks could not be read
+
+Events: none.
+
+### POST /v1/projects/{project}/list
+
+Auth: any key
+Effect: Adds an item with the next key, `queued` unless `stored_status` says otherwise.
+
+Path: `project` project id.
+
+Request:
+
+```json
+{
+  "title": "Ship the right panel",
+  "note": "List and Library only",
+  "parent_id": "GYR-1",
+  "stored_status": "queued",
+  "links": { "task_ids": [], "session_ids": [], "library_files": ["plans/panel.md"], "prs": [] }
+}
+```
+
+- The body is one JSON object of at most 256 KiB. `title` is required, at most 200 characters; runs of whitespace become one space. `note` is optional, at most 2000 characters.
+- `parent_id` is the id or key of a top-level item.
+- `links` (and `add_links`, which means the same here) name the work: `task_ids` of Tasks Core knows (a Bot task's id or a standalone Task's), `session_ids` of existing conversations, `library_files` relative to the library or absolute inside it, and `prs` with an `http(s)` `url`, an optional `number`, `repo` and `state` (`open`, `merged`, `closed`). At most 20 of each.
+
+Response: `201` the item as `GET` lists it.
+
+Errors:
+
+- `400` the JSON could not be read, the title is missing or too long, the note is too long, the status is unknown, the parent is missing or is itself a child, a library path is outside the library, a Task or conversation is unknown, a PR is malformed, too many links, or the list holds 500 items and none is archived
+- `404` project not found
+- `500` the list could not be saved
+
+Events: `project_list.changed`.
+
+### PATCH /v1/projects/{project}/list
+
+Auth: any key
+Effect: Sets the prefix of keys given from now on. Existing keys stay as they are.
+
+Path: `project` project id.
+
+Request:
+
+```json
+{ "prefix": "GYR" }
+```
+
+- `prefix` is 2 to 5 capital letters `A`-`Z`.
+
+Response: `200` the list as `GET` returns it.
+
+Errors:
+
+- `400` the prefix is not 2 to 5 capital letters
+- `404` project not found
+- `500` the list could not be saved
+
+Events: `project_list.changed`.
+
+### PATCH /v1/projects/{project}/list/{item}
+
+Auth: any key
+Effect: Changes one item. Fields left out are kept.
+
+Path: `project` project id. `item` the item's id or key (any letter case).
+
+Request:
+
+```json
+{
+  "title": "Ship the right panel",
+  "stored_status": "done",
+  "add_links": { "task_ids": ["bot_8d1f0a2b3c4d5e6f708192a3b4c5d6e7"] }
+}
+```
+
+- `title`, `note`, `parent_id` (`""` makes it top-level) and `stored_status` as in `POST`. An item that has children cannot get a parent. Giving a status always sets `status_at`, also when it is the same status. Archiving an item makes its children that are not archived top-level items.
+- `add_links` appends what is new; a PR whose `url` is linked already takes the sent `number`, `repo` and `state`. `links` replaces all links.
+
+Response: `200` the item as `GET` lists it, archived or not.
+
+Errors:
+
+- `400` as for `POST`
+- `404` project or item not found
+- `500` the list could not be saved
+
+Events: `project_list.changed`.
+
+### DELETE /v1/projects/{project}/list/{item}
+
+Auth: any key
+Effect: Removes one item. Its children stay, as top-level items. Its key is not reused.
+
+Path: `project` project id. `item` the item's id or key.
+
+Request: no body.
+
+Response: `204` no body.
+
+Errors:
+
+- `404` project or item not found
+- `500` the list could not be saved
+
+Events: `project_list.changed`.
 
 ### POST /v1/projects/{project}/reveal
 
@@ -319,6 +571,38 @@ Errors:
 
 - `404` project not found
 - `500` project library unavailable, or the directory could not be created (the message says why)
+
+Events: none.
+
+### GET /v1/projects/{project}/library
+
+Auth: any key
+Effect: Lists the files in the project's library, newest first, creating the library directory when it is missing. By default names that start with `.` (at any depth) and the top-level `internal` and `tmp` folders are left out. Symbolic links are not followed or listed. The response sends `Cache-Control: no-store`.
+
+Path: `project` project id.
+
+Query: `all` (`1` lists everything).
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "path": "/data/projects/3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b/library",
+  "files": [
+    { "path": "/data/projects/3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b/library/reports/weekly.md", "rel": "reports/weekly.md", "size": 2048, "modified": "2026-11-16T05:00:00Z" }
+  ],
+  "truncated": false
+}
+```
+
+- `rel` is relative to the library, with `/`. `modified` is RFC 3339 in UTC. At most 2000 files are listed; `truncated` is then `true`.
+
+Errors:
+
+- `404` project not found
+- `500` the library cannot be created or read
 
 Events: none.
 
