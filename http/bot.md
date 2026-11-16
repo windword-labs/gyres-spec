@@ -22,7 +22,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `channel_chats` (object) maps a kind (`feishu`, `discord`) to the session id of the chat that kind talks to now. Kinds with no chat yet are absent. `{}` when none are bound.
 - `chat_rotation` and `side_chat_branches` are always true: this Core accepts `POST /v1/bot/chats/{id}/new` and a `from` on `POST /v1/bot/chats`.
 - `tasks` (array) is newest first. See Tasks.
-- `projects` (array) is every registered project in the order of `GET /v1/projects`, for a project list next to the Bot's chats: `id`, `name`, `available` (the project's directories can be used now), `running` (its current Coordinator chat holds a live turn), and when set `folderless`, `bot_hidden`, `coordinator_session_id` (the current Coordinator chat, absent until `POST /v1/projects/{project}/coordinator` created it) and `run_state` (as for a chat). `[]` when none are registered.
+- `projects` (array) is every registered project in the order of `GET /v1/projects`, for a project list next to the Bot's chats: `id`, `name`, `available` (the project's directories can be used now), `running` (one of its open chats, the current Coordinator chat or a project chat without `ended`, holds a live turn), and when set `folderless`, `bot_hidden`, `coordinator_session_id` (the current Coordinator chat, absent until `POST /v1/projects/{project}/coordinator` created it) and `run_state` (as for a chat: the Coordinator chat's when it is not `idle`, else the first open chat's that is not `idle`, else `idle`). `[]` when none are registered.
 - `agenda` (array, read only) is the Bot's supervision agenda: open items first, then settled ones, each group most recently updated first. See Agenda. `[]` when empty.
 - `agenda_error` (string) is present only when the stored agenda could not be read at start. `agenda` is then `[]` and the Bot cannot change the agenda until the file is repaired or removed and Core restarts. The rest of the profile is unaffected.
 
@@ -41,12 +41,14 @@ Each chat:
 - `from_entry` (string) is present for a branched side chat: the main-chat message id it branched after.
 - `ready` (bool) is present only when true. A branched chat is ready once its model snapshot has been copied. A successful branch returns it true.
 - `channel` (string) is present for a chat created for a kind (`feishu` or `discord`). It stays after `/new` points the kind at a newer chat.
-- `ended` (string, UTC `YYYY-MM-DDTHH:MM:SSZ`) is present after `/new` moved the main-chat pointer, the kind's binding or the project's Coordinator pointer off this chat. The chat stays listed and usable.
-- `project_id` (string) is present on a project's Coordinator chat, on one `/new` set aside, and on a side chat branched from one. The project's current Coordinator chat is the `coordinator_session_id` in `projects`, not the absence of `ended`. A Coordinator chat's `title` is the project's name.
+- `ended` (string, UTC `YYYY-MM-DDTHH:MM:SSZ`) is present after `/new` moved the main-chat pointer, the kind's binding or the project's Coordinator pointer off this chat, or after `PATCH /v1/bot/chats/{id}` closed a project's chat. The chat stays listed and usable; closing it with `closed: false` clears `ended`.
+- `project_id` (string) is present on a project's Coordinator chat, on one `/new` set aside, on a project's parallel chat, and on a side chat branched from any of them. The project's current Coordinator chat is the `coordinator_session_id` in `projects`, not the absence of `ended`. A Coordinator chat's `title` is the project's name.
+- `parallel` (bool) is present only when true: a project's chat opened next to its Coordinator chat (`POST /v1/bot/chats` with `project_id`). It is never a Coordinator chat and keeps its own `title`. A client shows a project's open chats (no `ended`) as tabs next to its Coordinator chat and the others as its closed chats.
+- `untitled` (bool) is present only when true: the chat was opened without a title and `title` is the placeholder `New chat`. The owner's first message in the chat (`POST /v1/sessions/{id}/turns`) replaces it with that message's first line, shortened, and clears `untitled`; so does a rename.
 - `running` (bool) is true while a live turn holds the chat, including while that turn is `paused` or `pausing`.
 - `run_state` (string) while a live turn holds the chat is `running`, `pausing`, `paused`, or `waiting_children` (`running` that is waiting on child runs). When nothing is live but a task is still pending, it is the pending task's state as [`GET /v1/sessions/{id}/run-state`](runs.md#get-v1sessionsidrun-state) derives it: `paused`, `interrupted`, or `blocked`. Otherwise `idle`.
 
-`settings` is never included. The profile's `chats` always include `running` and `run_state`. `POST /v1/bot/chats` without `from` returns the chat without those two fields.
+`settings` is never included. The profile's `chats` always include `running` and `run_state`. `POST /v1/bot/chats` without `from` and `project_id` returns the chat without those two fields.
 
 ## Tasks
 
@@ -369,12 +371,16 @@ Events: `bot.changed` on success.
 ### POST /v1/bot/chats
 
 Auth: any key
-Effect: Opens a side chat. With `from`, the chat is a lane of the current main chat, sharing history through that message. Without `from`, the chat is a new empty conversation of its own.
+Effect: Opens a side chat. With `from`, the chat is a lane of the current main chat (or of a project's open chat), sharing history through that message. With `project_id`, the chat is a project's parallel chat: a new empty Bot chat bound to the project like its Coordinator chat (the project's directories, instructions, memory, library and skills, the Bot's prompt and tools, the project's Coordinator model), in its own conversation directory, with `parallel` true. Otherwise the chat is a new empty conversation of its own.
 
 Request:
 
 ```json
 { "title": "Research thread" }
+```
+
+```json
+{ "project_id": "p_3f1c2a90" }
 ```
 
 ```json
@@ -387,8 +393,9 @@ Request:
 }
 ```
 
-- `title` (string, required). Trimmed. Empty is rejected. The body is one JSON object of at most 4096 bytes.
-- `from` (object, optional). Omit it, or send JSON `null`, for an empty side chat. `session_id` must be the current main chat (`main_session_id`), not an earlier main chat, or a project's current Coordinator chat; a branch of a Coordinator chat has that project's `project_id` and works in the project. `entry_id` must be non-empty and must be the assistant message that ends a finished turn on the main chat's current path: not inside a turn that is still running, not a turn whose tool call has no result yet, and not a message that is not that final assistant reply.
+- `title` (string, optional). Trimmed. Omitted or empty, the chat gets the placeholder title `New chat` with `untitled` true, and the owner's first message names it. The body is one JSON object of at most 4096 bytes.
+- `from` (object, optional). Omit it, or send JSON `null`, for an empty side chat. `session_id` must be the current main chat (`main_session_id`), not an earlier main chat, or an open chat of a registered project that is not itself a branch: its current Coordinator chat, a parallel chat, or an earlier Coordinator chat opened again, none of them with `ended`. A branch of a project's chat has that project's `project_id` and works in the project.
+- `project_id` (string, optional). Ignored when `from` is given. A registered project's id; the chat opens as that project's parallel chat. A project without folders gets its library created first. `entry_id` must be non-empty and must be the assistant message that ends a finished turn on the main chat's current path: not inside a turn that is still running, not a turn whose tool call has no result yet, and not a message that is not that final assistant reply.
 - Other fields are ignored.
 
 Response: `200`
@@ -418,12 +425,29 @@ A branched side chat:
 }
 ```
 
+A project's parallel chat opened without a title:
+
+```json
+{
+  "session_id": "2026-10-14T12-07-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b",
+  "title": "New chat",
+  "created": "2026-10-14T12:07:00Z",
+  "project_id": "p_3f1c2a90",
+  "parallel": true,
+  "untitled": true,
+  "running": false,
+  "run_state": "idle"
+}
+```
+
 `session_id` of a branch is the main session id, `~sc_`, and 12 lowercase hex characters.
 
 Errors:
 
-- `400` chat title is required. Also for a body that is not JSON or is larger than 4096 bytes.
-- `400` a side chat branches from an entry of the Bot main chat or a Project's Coordinator chat
+- `400` invalid json. The body is not JSON or is larger than 4096 bytes.
+- `400` a side chat branches from an entry of the Bot main chat or an open chat of a Project
+- `404` project not found (`project_id`)
+- `409` the project's primary directory is missing or cannot be used (`project_id`); nothing is created
 - `400` message `<entry_id>` is not in the main conversation
 - `409` the main chat is busy; try again
 - `409` this turn is still running; branch from an earlier turn
@@ -433,7 +457,7 @@ Errors:
 - `503` Core is moving its data directory; try again when it finishes
 - `500` the chat could not be created. If copying the branched chat's model setting fails after the chat was recorded, the record stays and the next `GET /v1/bot` finishes it.
 
-Events: an empty side chat emits `sessions.changed` for the new conversation and `bot.changed`. It does not create the main chat. A branch emits `session.messages` for the new lane and `bot.changed`. A branch that has to create the main chat also emits `sessions.changed` and `bot.changed` for that chat.
+Events: an empty side chat or a parallel chat emits `sessions.changed` for the new conversation and `bot.changed`. It does not create the main chat. A branch emits `session.messages` for the new lane and `bot.changed`. A branch that has to create the main chat also emits `sessions.changed` and `bot.changed` for that chat.
 
 ### POST /v1/bot/chats/{id}/new
 
@@ -465,6 +489,54 @@ Errors:
 - `500` the new chat could not be created, including `the chat changed meanwhile; try again` if the binding moved during the write
 
 Events: `sessions.changed` for the new conversation, and `bot.changed`. Also `sessions.changed` for the main chat when this call creates it.
+
+### PATCH /v1/bot/chats/{id}
+
+Auth: any key
+Effect: Closes a project's chat, opens it again, or renames a Bot chat. Closing sets `ended` to now: a client lists the chat with the project's closed chats instead of its tabs, task reports for it go to the project's current Coordinator chat, and its memory review is queued (writing the project's memory), immediately if it is idle, otherwise once its current turn finishes. Closing stops nothing and deletes nothing; the chat stays usable. `closed: false` clears `ended`, so the chat is one of the project's open chats again and receives its own reports. A title renames the chat and clears `untitled`.
+
+Path: `id` session id of a chat in `chats`.
+
+Request:
+
+```json
+{ "closed": true }
+```
+
+```json
+{ "title": "Launch email" }
+```
+
+- `closed` (boolean, optional). Only a chat with `project_id` can be closed or opened again. Closing a chat that is already closed, or opening one that is open, changes nothing.
+- `title` (string, optional). Whitespace is collapsed; 1 to 100 characters. The current main chat cannot be renamed.
+- At least one of the two is required. The body is one JSON object of at most 4096 bytes.
+
+Response: `200` the chat as `chats` lists it.
+
+```json
+{
+  "session_id": "2026-10-14T12-07-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b",
+  "title": "Launch email",
+  "created": "2026-10-14T12:07:00Z",
+  "ended": "2026-10-15T09:00:00Z",
+  "project_id": "p_3f1c2a90",
+  "parallel": true,
+  "running": false,
+  "run_state": "idle"
+}
+```
+
+Errors:
+
+- `400` closed or title is required. Also for a body that is not JSON or is larger than 4096 bytes.
+- `400` a Bot chat needs a title of at most 100 characters
+- `400` the main chat cannot be renamed
+- `400` only a Project's chats can be closed or opened again
+- `404` chat not found. The id is not a Bot chat, or its conversation is gone.
+- `409` closing the Bot main chat, a project's current Coordinator chat (`/new` sets that one aside instead), or the chat a channel kind is bound to now
+- `500` the chat record could not be saved
+
+Events: `bot.changed` on every change; `sessions.changed` for the chat when its title changes.
 
 ### DELETE /v1/bot/chats/{id}
 

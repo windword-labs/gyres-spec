@@ -293,6 +293,69 @@ Errors:
 
 Events: none.
 
+### GET /v1/projects/summary
+
+Auth: any key
+Effect: Returns every saved project at once with what waits on the owner there, for a home screen that sorts projects by it: workers waiting on an approval, agenda items waiting for the owner, linked work that failed, and list items waiting to be merged, plus the working count and the last activity. Read only; derived from the same data as `GET /v1/projects/{project}/activity` and `GET /v1/projects/{project}/list`. Refetch it on `bot.changed`, `approvals.changed`, `project_list.changed` and run ends.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "projects": [
+    {
+      "id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b",
+      "name": "Demo",
+      "available": true,
+      "coordinator_session_id": "2026-11-16T04-00-00_5b0c2a8e-4f4e-4d55-9a37-0d0f0c7b3a11",
+      "running": false,
+      "run_state": "idle",
+      "attention_count": 2,
+      "counts": { "approval": 1, "owner": 0, "failed": 0, "merge": 1 },
+      "attention": [
+        {
+          "kind": "approval",
+          "title": "Fix the parser",
+          "session_id": "2026-11-16T05-00-00_bot_8d1f0a2b3c4d5e6f708192a3b4c5d6e7",
+          "task_id": "bot_8d1f0a2b3c4d5e6f708192a3b4c5d6e7",
+          "executor": "codex",
+          "approval_ids": ["apr_0123456789abcdef"],
+          "item": { "id": "li_0123456789abcdef", "key": "DEM-3", "title": "Fix the parser" },
+          "at": "2026-11-16T05:02:00Z"
+        },
+        {
+          "kind": "merge",
+          "title": "Ship the right panel",
+          "item": { "id": "li_fedcba9876543210", "key": "DEM-1", "title": "Ship the right panel" },
+          "prs": [{ "url": "https://github.com/example/repo/pull/12", "number": 12, "state": "open" }],
+          "at": "2026-11-16T05:10:00Z"
+        }
+      ],
+      "working_count": 1,
+      "last_activity": "2026-11-16T05:10:00Z"
+    }
+  ]
+}
+```
+
+- `projects` lists the projects that have something waiting first (`attention_count` above 0), then the others, each group by `last_activity`, newest first. `id`, `name`, `folderless`, `available`, `bot_hidden`, `coordinator_session_id`, `running` and `run_state` are as in the `projects` of `GET /v1/bot`; hidden projects are included with `bot_hidden`.
+- `attention_count` is the number of entries; `counts` splits it by kind, every kind present. `attention` lists them, at most 20 (the counts cover all of them), approvals first, then `owner`, `failed` and `merge`, each kind by `at`, newest first:
+  - `approval`: a worker of the project (as in `GET /v1/projects/{project}/activity`) with `waiting_approval`, once per worker, with `task_id`, `executor` and the waiting `approval_ids` (see `GET /v1/approvals`); `at` is when the oldest of them was asked. A project chat (its Coordinator, a parallel or side chat) waiting on an approval is listed the same way without `task_id`, titled with the project's name. Each approval is listed once.
+  - `owner`: an agenda item of the project that waits for the owner (`agenda_id`; `session_id` is its first conversation target, when it has one); `at` is when it started waiting.
+  - `failed`: a list item whose linked worker failed after the item last got a status (the item is `in_progress` for it in `GET /v1/projects/{project}/list`), the newest such worker; giving the item a status again clears it. A failed worker that no list item links is not listed.
+  - `merge`: a list item that is `for_review` (`review_reason` `pr`, waiting to be merged) for its own open PRs, listed in `prs`; a parent that only takes the state from its child is not listed again, and an item given `for_review` by hand without an open PR is not listed. `session_id`, `task_id` and `executor` name its most recent linked worker, when there is one.
+  - `title` is the worker's or the item's title. `item` (`id`, `key`, `title`) is the list item the entry belongs to or that links the worker. `session_id` is the conversation to open.
+- `working_count` is the project's `working_count` in `GET /v1/projects/{project}/activity` (unsettled workers and those waiting on an approval).
+- `last_activity` is the newest of the project's chats' last writes, its workers' `updated` and its list items' `updated_at`; absent when the project has none.
+
+Errors:
+
+- `500` the registration, a list or the tasks could not be read
+
+Events: none.
+
 ### GET /v1/projects/{project}/list
 
 Auth: any key
@@ -319,7 +382,7 @@ Response: `200`
       "note": "List and Library only",
       "stored_status": "queued",
       "effective_status": "for_review",
-      "review_reason": "ready",
+      "review_reason": "pr",
       "links": {
         "task_ids": ["bot_8d1f0a2b3c4d5e6f708192a3b4c5d6e7"],
         "session_ids": [],
@@ -341,9 +404,9 @@ Response: `200`
 - `prefix` is the prefix new keys get: 2 to 5 capital letters, derived from the project's name until it is set (the initials of its Latin words, or the first three letters of one word, else `PRJ`). Keys are never reused.
 - `library` is the project's library path. `library_files` are relative to it, with `/`.
 - `parent_id`, present on a child, is its parent's `id`. Items nest one level only.
-- `stored_status` is the status last given by hand or by the Coordinator: `queued`, `in_progress`, `for_review`, `done` or `archived`. `status_at` is when a status was last given, also when the same one is given again; `linked_at` when a link was last added. `completed_at` is present while the stored status is `done` or `archived` after `done`.
-- `effective_status` is derived in this order: `archived` and `done` as stored; `done` (`done_reason` `merged`) when every linked PR is `merged` and no linked work runs; `for_review` (`review_reason` `decision`) when a linked worker or conversation waits on an approval or its agenda item waits for the owner; `in_progress` while linked work is queued, running or paused; `for_review` with `failed` when linked work failed, `marked` when stored so, `ready` when linked work completed, or a linked library file or an `open` PR exists; otherwise the stored status. Finished work, files and PRs (merged ones included) count only when they are newer than `status_at` or were linked since then (links sent again unchanged do not count), so an item sent back to `queued` stays there until something new arrives. A library file counts when it changed after `status_at`.
-- A parent with children: `children_total` and `children_done` count its children that are not archived. It is `done` when every child is and a child got its status or a link after the parent's `status_at` (a parent sent back after its children finished keeps its stored status), and otherwise takes the most pressing of its own status and its children's (`for_review`, then `in_progress`, then `queued`; `review_reason` `child` when a child is for review).
+- `stored_status` is the status last given by hand or by the Coordinator: `queued`, `in_progress`, `for_review` (waiting to be merged), `done` or `archived`. `status_at` is when a status was last given, also when the same one is given again; `linked_at` when a link was last added. `completed_at` is present while the stored status is `done` or `archived` after `done`.
+- `effective_status` is derived from the linked work, with no review step, in this order: `archived` and `done` as stored; `done` (`done_reason` `merged`) when every linked PR is `merged` and no linked work runs; `in_progress` while linked work is queued, running or paused, waits on an approval (a worker's `waiting_approval`, or its agenda item waits for the owner), or failed (the worker's `status` says so); `for_review` (`review_reason` `pr`, waiting to be merged) when a linked PR is `open`; `done` (`done_reason` `completed`) when linked work completed; otherwise the stored status. Finished or failed work and PRs (merged ones included) count only when they are newer than `status_at` or were linked since then (links sent again unchanged do not count), so an item whose status was set by hand, for example sent back to `queued`, stays there until something new arrives. Library files do not move the status.
+- A parent with children: `children_total` and `children_done` count its children that are not archived. It is `done` when every child is and a child got its status, a link or finished work after the parent's `status_at` (a parent sent back after its children finished keeps its stored status), and otherwise, unless its stored status is `done` or `archived`, takes the most pressing of its own effective status and its children's (`for_review`, then `in_progress`, then `queued`, then `done`; with the child's `review_reason`).
 - `workers` has one row per linked task Core still knows, shaped as in `GET /v1/projects/{project}/activity`. A standalone Task between attempts has no `session_id` and the status of its last outcome.
 - PR states are what was last sent; Core does not look them up.
 

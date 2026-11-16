@@ -369,7 +369,7 @@ Response: `200`
 }
 ```
 
-`records` is the timeline above, including context records the list skips. `running` is true if a run slot existed before the read or still exists after it. Optional fields, when present, are `history_cursor`, `title`, `branch`, `origin`, `parent_session`, `executor_model`, `executor_options`, `cwd`, `cwd_kind`, and `workspace`, as specified above.
+`records` is the timeline above, including context records the list skips. `running` is true if a run slot existed before the read or still exists after it. Optional fields, when present, are `history_cursor`, `title`, `branch`, `origin`, `parent_session`, `executor_model`, `executor_options`, `cwd`, `cwd_kind`, and `workspace`, as specified above. `worker_project_id` is present when the conversation is a worker of a project: a Bot task's conversation (a hidden worker or a visible task, not an adopted conversation) or a standalone Task's attempt, the ones `GET /v1/projects/{project}/activity` lists for that project. A conversation that is only bound to the project (`workspace.project_id`) does not have it.
 
 Errors:
 
