@@ -75,7 +75,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 - `parent=<session_id>` lists that conversation's children instead: its subagents' conversations, and the conversations and hidden workers the Bot opened for tasks it started (the supervisor's under the main chat). With `parent` the list is unified whether or not `all=1` is sent.
 - `archived=true` with `all=1` lists the archived rows (the archived row shape, no extra fields) with the same rules, the former Bot chats included.
 - A row has these extra fields, all omitted when empty:
-  - `role`: `main`, `channel:<kind>` or `coordinator`;
+  - `role`: `main`, `channel:<kind>` or `coordinator`. `main` only once the Bot is configured (`GET /v1/bot` `configured`): before that, a main chat with messages is a row without a role, and an empty one is not listed;
   - `pinned_order`: `0` for the main chat, then `1`, `2`, … for the channel chats in kind order;
   - `project_id`: the workspace binding's Project;
   - `parent_session`: the conversation it was opened from;

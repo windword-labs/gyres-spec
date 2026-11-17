@@ -1,6 +1,6 @@
 # Pairing and access keys
 
-Almost every Core route needs an access key. The owner can give you one, or an administrator can mint a one-time pairing code that this device redeems for its own ordinary key. Store that secret, send it as `Authorization: Bearer $GYRES_KEY`, then read your role and check `api_version` before you build the rest of the UI.
+Almost every Core route needs an access key. The owner can give you one, or an administrator can mint a one-time pairing code that this device redeems for its own key (ordinary unless the administrator asked for an administrator key). Store that secret, send it as `Authorization: Bearer $GYRES_KEY`, then read your role and check `api_version` before you build the rest of the UI.
 
 Set `GYRES_KEY` to the secret you stored. The examples below use `http://127.0.0.1:15100`. A real Core may be a LAN address or an `https://` origin; `GET /v1/identity` lists the origins this Core publishes.
 
@@ -12,13 +12,13 @@ Put the secret in the client's credential store and export it for the examples:
 export GYRES_KEY='the-secret-the-owner-gave-you'
 ```
 
-An ordinary key and the administrator key use the same header. The administrator key is the only one that can create a pairing code.
+Ordinary and administrator keys use the same header. Only an administrator key can create a pairing code; a Core can have several administrator keys.
 
 ## 2. Or pair this device
 
-Pairing only adds a key. It does not list, rename, revoke, or regenerate keys, and the new key is not an administrator key.
+Pairing only adds a key. It does not list, rename, revoke, or regenerate keys. The new key is an ordinary key unless the code was created with `{"role": "admin"}`.
 
-An administrator creates one code. The request has no body. The response is `201`:
+An administrator creates one code. For an ordinary key the request needs no body; send `{"role":"admin"}` for an administrator key. The response is `201`:
 
 ```bash
 curl -sS -D - -X POST \
@@ -31,7 +31,8 @@ curl -sS -D - -X POST \
   "code": "K3NQW4E6R7T2Y5PAMZXC7HJSBD",
   "core_url": "http://192.0.2.10:15100",
   "expires_at": "2026-10-14T12:02:00Z",
-  "id": "K3NQW4E6R7T2Y5PA"
+  "id": "K3NQW4E6R7T2Y5PA",
+  "role": "user"
 }
 ```
 

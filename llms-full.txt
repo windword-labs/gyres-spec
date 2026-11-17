@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.125.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.125.1. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -30,8 +30,8 @@ latest Gyres release only; breaking changes are listed in
   example `http://127.0.0.1:15100`, a LAN address, or an `https://` domain.
 - Every request except a few marked `Auth: none` sends
   `Authorization: Bearer <access key>`. Keys come from the owner or from
-  [device pairing](guides/pairing-and-keys.md). One key, the administrator key,
-  may also manage Core (`Auth: admin`); every other key is an ordinary key.
+  [device pairing](guides/pairing-and-keys.md). Administrator keys (there can be
+  several) may also manage Core (`Auth: admin`); every other key is an ordinary key.
   `GET /v1/identity` tells you which kind you hold.
 - Requests and responses are JSON unless an endpoint says otherwise. Ignore
   fields you do not know; Core adds fields without notice.
@@ -364,7 +364,7 @@ Refetch the list, or insert this id and open it. A `500` means the conversation 
 
 # Pairing and access keys
 
-Almost every Core route needs an access key. The owner can give you one, or an administrator can mint a one-time pairing code that this device redeems for its own ordinary key. Store that secret, send it as `Authorization: Bearer $GYRES_KEY`, then read your role and check `api_version` before you build the rest of the UI.
+Almost every Core route needs an access key. The owner can give you one, or an administrator can mint a one-time pairing code that this device redeems for its own key (ordinary unless the administrator asked for an administrator key). Store that secret, send it as `Authorization: Bearer $GYRES_KEY`, then read your role and check `api_version` before you build the rest of the UI.
 
 Set `GYRES_KEY` to the secret you stored. The examples below use `http://127.0.0.1:15100`. A real Core may be a LAN address or an `https://` origin; `GET /v1/identity` lists the origins this Core publishes.
 
@@ -376,13 +376,13 @@ Put the secret in the client's credential store and export it for the examples:
 export GYRES_KEY='the-secret-the-owner-gave-you'
 ```
 
-An ordinary key and the administrator key use the same header. The administrator key is the only one that can create a pairing code.
+Ordinary and administrator keys use the same header. Only an administrator key can create a pairing code; a Core can have several administrator keys.
 
 ## 2. Or pair this device
 
-Pairing only adds a key. It does not list, rename, revoke, or regenerate keys, and the new key is not an administrator key.
+Pairing only adds a key. It does not list, rename, revoke, or regenerate keys. The new key is an ordinary key unless the code was created with `{"role": "admin"}`.
 
-An administrator creates one code. The request has no body. The response is `201`:
+An administrator creates one code. For an ordinary key the request needs no body; send `{"role":"admin"}` for an administrator key. The response is `201`:
 
 ```bash
 curl -sS -D - -X POST \
@@ -395,7 +395,8 @@ curl -sS -D - -X POST \
   "code": "K3NQW4E6R7T2Y5PAMZXC7HJSBD",
   "core_url": "http://192.0.2.10:15100",
   "expires_at": "2026-10-14T12:02:00Z",
-  "id": "K3NQW4E6R7T2Y5PA"
+  "id": "K3NQW4E6R7T2Y5PA",
+  "role": "user"
 }
 ```
 
@@ -2162,7 +2163,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `configured` (bool) is false until the first successful `PUT /v1/bot`, then stays true.
 - `name` (string) is `Gyres Bot` until a save. A save stores the trimmed name.
 - `description` (string) is built-in delegation guidance until the owner saves one. A stored description that is empty, or exactly `Your persistent local assistant.`, is filled with that guidance once, before any request. A save stores the trimmed description, including `""`, and a later empty save stays empty.
-- `main_session_id` (string) is the current main chat. The first read or write that needs it creates the chat.
+- `main_session_id` (string) is the current main chat, `""` while there is none. Saving the profile (`PUT /v1/bot`) creates it, and so does the first write that needs it (a side chat, a background task, a delivered result, a channel message). `GET /v1/bot` never creates it. Once `configured` is true there is always one. A main chat that was deleted or archived is replaced by a fresh one the same way; an archived one stays archived.
 - `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the model of the main chat and each channel kind's current chat (including chats `/new` creates) and of the side chats branched from them. Both `""` means the Settings default, then the first model Core can use. Their own saved model is not used; `PUT /v1/sessions/{id}/settings` in one of them sets this pair. Any other conversation, a chat `/new` set aside included, runs on its own setting (see `unified_chats`). A project's Coordinator chats (with `project_id`) run on that project's Coordinator model when the project has one (`coordinator_model` on the project), else on this pair; `PUT /v1/sessions/{id}/settings` there sets the project's Coordinator model unless its `target` is `bot` or `task`, and an empty choice clears it. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, always present) are the reasoning effort of the Bot model and of the task model. `""` is the model's default (no effort is sent). A task without a task model takes the Bot model with its effort. The first Core start after efforts were added copies the main chat's saved effort to an empty `bot_reasoning_effort` once, when that saved setting names the Bot model.
 - `task_provider_id` and `task_model` (strings, always present) choose the model for a new background task. Both `""` means the Bot model, then Core's default model resolution. A non-empty pair is pinned for every new task: the fallback chain is not used. A pair that names an external agent is ignored at task creation as if it were unset.
@@ -2351,7 +2352,7 @@ A `PUT` of `display` replaces the whole stored object. A field left out is clear
 ### GET /v1/bot
 
 Auth: any key
-Effect: Returns the Bot profile, creating the main chat the first time it is missing. The first time this process ensures the main chat, it also finishes or drops side chats left half-created or half-deleted.
+Effect: Returns the Bot profile. It creates nothing: before the Bot is saved, `main_session_id` may be `""` and `chats` empty. When a main chat exists, the first read in this process also finishes or drops side chats left half-created or half-deleted.
 
 Request: no body.
 
@@ -2397,14 +2398,14 @@ Response: `200`
 
 Errors:
 
-- `500` the main chat could not be created, or a half-finished side chat could not be repaired
+- `500` the Bot state file is damaged (the message names it), or a half-finished side chat could not be repaired
 
-Events: `sessions.changed` and `bot.changed` when this read creates the main chat. `bot.changed` when a repair changes the chat list. A read that changes nothing emits nothing.
+Events: `bot.changed` when a repair changes the chat list. A read that changes nothing emits nothing.
 
 ### PUT /v1/bot
 
 Auth: any key
-Effect: Saves the name and description, and optionally the task model or the Bot model. The description sent here is kept as sent, including empty. Also creates the main chat if it does not exist yet.
+Effect: Saves the name and description, and optionally the task model or the Bot model. The description sent here is kept as sent, including empty. Also creates the main chat if it does not exist yet, before the profile is saved, so a configured Bot always has one.
 
 Request:
 
@@ -2438,7 +2439,7 @@ Errors:
 - `400` Bot conversations run on a configured provider, not an external agent
 - `400` notify_target must be last_active, app_only or a channel kind
 - `400` idle_nudge_minutes must be 0 through 1440
-- `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat happens after a successful save.
+- `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat leaves the profile unsaved.
 
 Events: `bot.changed`. Also `sessions.changed` when this call creates the main chat.
 
@@ -4062,7 +4063,7 @@ Events: none.
 ### POST /v1/host-screen/viewers
 
 Auth: admin
-Effect: Accepts one complete WebRTC offer and returns the answer for a new view. Capture of the chosen display starts if this is the first viewer on it. The view stays open after the response, until it is deleted, the peer connection fails or closes, viewing is turned off, or the access key that opened it is revoked or regenerated.
+Effect: Accepts one complete WebRTC offer and returns the answer for a new view. Capture of the chosen display starts if this is the first viewer on it. The view stays open after the response, until it is deleted, the peer connection fails or closes, viewing is turned off, or the access key that opened it is revoked.
 
 Request:
 
@@ -5620,7 +5621,7 @@ Events: none.
 
 # Device pairing
 
-Device pairing gives a new device its own ordinary access key. An administrator creates a short-lived code; the device redeems that code with no access key and receives a new secret once. Pairing only adds a key. It cannot list, rename, revoke or regenerate keys, and the new key is not an administrator key.
+Device pairing gives a new device its own access key: an ordinary key, or an administrator key when the administrator asks for one. An administrator creates a short-lived code; the device redeems that code with no access key and receives a new secret once. Pairing only adds a key. It cannot list, rename, revoke or regenerate keys. The role is kept with the code inside Core; the code and any link built from it do not carry it.
 
 A code lives only in memory. Restarting Core drops it. At most 5 codes are active at once: not yet redeemed, and not yet expired. Each code lasts 2 minutes, works once, and is kept only as a hash. The pairing `id` is a different value from the code. It cannot be redeemed. Status and cancel refer to a code by this `id`.
 
@@ -5664,7 +5665,13 @@ Events: none.
 Auth: admin
 Effect: Creates one pairing code and the address a device should use to reach this Core. When no such address can be named, nothing is created.
 
-Request: no body.
+Request: no body, or
+
+```json
+{ "role": "admin" }
+```
+
+- `role` (string, optional) is `user` (the default) or `admin`: the kind of key the code will create. Any other value, another field, or a body that is not one JSON object of at most 4096 bytes is `400`.
 
 Response: `201`
 
@@ -5673,13 +5680,15 @@ Response: `201`
   "code": "K3NQW4E6R7T2Y5PAMZXC7HJSBD",
   "core_url": "http://192.0.2.10:15100",
   "expires_at": "2026-10-14T12:02:00Z",
-  "id": "K3NQW4E6R7T2Y5PA"
+  "id": "K3NQW4E6R7T2Y5PA",
+  "role": "user"
 }
 ```
 
 - `code` is the one-time pairing code, returned only here. Show it to the device; a later status read will not repeat it.
 - `id` identifies this code for status and cancel. It is not the code.
 - `expires_at` is 2 minutes after creation, UTC.
+- `role` is the kind of key the code creates, `user` or `admin`. A Core that does not report it creates ordinary keys only and ignores the request body.
 - `relay` and `ck` are present only while the Gyres relay is on ([relay](relay.md)): the relay address for this Core and Core's X25519 Noise public key (base64url, 32 bytes). A pairing link carries them as the `relay` and `ck` fragment keys.
 - `core_url` is the address the device should use. The request is first taken as it arrived: scheme `https` when the connection is TLS, otherwise `http`, and the host header. When the peer is a trusted proxy, exactly one forwarding family is present, and those headers are well formed, that view is replaced by the proxy's scheme and host (`Forwarded`, or `X-Forwarded-Proto` together with `X-Forwarded-Host`). Both families at once, an untrusted peer, or a malformed header leave the connection unchanged.
 - If that host is a non-loopback, non-unspecified IP, or any other non-empty name other than `localhost` in any case, `core_url` is the scheme plus that host, port included.
@@ -5697,6 +5706,7 @@ Errors:
 }
 ```
 
+- `400` invalid request, or role must be admin or user
 - `429` too many pairing codes are active; wait or cancel one
 
 Events: none.
@@ -5704,7 +5714,7 @@ Events: none.
 ### POST /v1/pairing/redeem
 
 Auth: none
-Effect: Exchanges one valid pairing code for a new ordinary access key and returns its secret once. The code is consumed before the key is saved, so a second request, a concurrent request, or a failed save cannot mint another key from it.
+Effect: Exchanges one valid pairing code for a new access key of the code's role and returns its secret once. The code is consumed before the key is saved, so a second request, a concurrent request, or a failed save cannot mint another key from it.
 
 Request:
 
@@ -5712,7 +5722,7 @@ Request:
 { "code": "K3NQW4E6R7T2Y5PAMZXC7HJSBD", "device_name": "iPhone" }
 ```
 
-- `code` (string) is the pairing code. Required for success. Missing, empty, wrong, expired, cancelled and already-used values all fail the same way. Comparison trims surrounding whitespace and ignores letter case.
+- `code` (string) is the pairing code. Required for success. Missing, empty, wrong, expired, cancelled and already-used values all fail the same way, and so does a code whose administrator key has been revoked since it was created. Comparison trims surrounding whitespace and ignores letter case.
 - `device_name` (string, optional) is a label for the new key. Leading and trailing whitespace is removed, runs of whitespace become one space, and control characters and other non-printable characters are dropped. What remains is cut to 40 Unicode code points and trimmed again. If nothing remains, the `User-Agent` header is used, matched in this order, case-insensitive: `iphone` becomes `iPhone`, then `ipad` becomes `iPad`, then `android` becomes `Android`, then `macintosh` becomes `Mac`, then `windows` becomes `Windows`, then `linux` becomes `Linux`, otherwise `新设备`. The stored name is that label, then ` · `, then Core's local month and day with no leading zeros, written `10月4日`.
 - The body is one JSON object of at most 4096 bytes and may contain only these fields.
 
@@ -9256,7 +9266,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 - `parent=<session_id>` lists that conversation's children instead: its subagents' conversations, and the conversations and hidden workers the Bot opened for tasks it started (the supervisor's under the main chat). With `parent` the list is unified whether or not `all=1` is sent.
 - `archived=true` with `all=1` lists the archived rows (the archived row shape, no extra fields) with the same rules, the former Bot chats included.
 - A row has these extra fields, all omitted when empty:
-  - `role`: `main`, `channel:<kind>` or `coordinator`;
+  - `role`: `main`, `channel:<kind>` or `coordinator`. `main` only once the Bot is configured (`GET /v1/bot` `configured`): before that, a main chat with messages is a row without a role, and an empty one is not listed;
   - `pinned_order`: `0` for the main chat, then `1`, `2`, … for the channel chats in kind order;
   - `project_id`: the workspace binding's Project;
   - `parent_session`: the conversation it was opened from;
@@ -10457,7 +10467,7 @@ Events: `session.recap`
 
 # Storage, export and import
 
-These routes tell a frontend where this Core keeps its data, move that data to another directory, delete a previous location, reopen Core when the directory is missing or broken, delete old archived conversations, and download or restore one zip of the whole Core. Every route needs the administrator key.
+These routes tell a frontend where this Core keeps its data, move that data to another directory, delete a previous location, reopen Core when the directory is missing or broken, delete old archived conversations, and download or restore one zip of the whole Core. Every route needs an administrator key.
 
 JSON responses are `application/json` and send `Cache-Control: no-store`.
 

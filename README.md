@@ -23,8 +23,8 @@ latest Gyres release only; breaking changes are listed in
   example `http://127.0.0.1:15100`, a LAN address, or an `https://` domain.
 - Every request except a few marked `Auth: none` sends
   `Authorization: Bearer <access key>`. Keys come from the owner or from
-  [device pairing](guides/pairing-and-keys.md). One key, the administrator key,
-  may also manage Core (`Auth: admin`); every other key is an ordinary key.
+  [device pairing](guides/pairing-and-keys.md). Administrator keys (there can be
+  several) may also manage Core (`Auth: admin`); every other key is an ordinary key.
   `GET /v1/identity` tells you which kind you hold.
 - Requests and responses are JSON unless an endpoint says otherwise. Ignore
   fields you do not know; Core adds fields without notice.

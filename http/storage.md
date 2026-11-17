@@ -1,6 +1,6 @@
 # Storage, export and import
 
-These routes tell a frontend where this Core keeps its data, move that data to another directory, delete a previous location, reopen Core when the directory is missing or broken, delete old archived conversations, and download or restore one zip of the whole Core. Every route needs the administrator key.
+These routes tell a frontend where this Core keeps its data, move that data to another directory, delete a previous location, reopen Core when the directory is missing or broken, delete old archived conversations, and download or restore one zip of the whole Core. Every route needs an administrator key.
 
 JSON responses are `application/json` and send `Cache-Control: no-store`.
 

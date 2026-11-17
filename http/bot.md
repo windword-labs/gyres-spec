@@ -13,7 +13,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `configured` (bool) is false until the first successful `PUT /v1/bot`, then stays true.
 - `name` (string) is `Gyres Bot` until a save. A save stores the trimmed name.
 - `description` (string) is built-in delegation guidance until the owner saves one. A stored description that is empty, or exactly `Your persistent local assistant.`, is filled with that guidance once, before any request. A save stores the trimmed description, including `""`, and a later empty save stays empty.
-- `main_session_id` (string) is the current main chat. The first read or write that needs it creates the chat.
+- `main_session_id` (string) is the current main chat, `""` while there is none. Saving the profile (`PUT /v1/bot`) creates it, and so does the first write that needs it (a side chat, a background task, a delivered result, a channel message). `GET /v1/bot` never creates it. Once `configured` is true there is always one. A main chat that was deleted or archived is replaced by a fresh one the same way; an archived one stays archived.
 - `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the model of the main chat and each channel kind's current chat (including chats `/new` creates) and of the side chats branched from them. Both `""` means the Settings default, then the first model Core can use. Their own saved model is not used; `PUT /v1/sessions/{id}/settings` in one of them sets this pair. Any other conversation, a chat `/new` set aside included, runs on its own setting (see `unified_chats`). A project's Coordinator chats (with `project_id`) run on that project's Coordinator model when the project has one (`coordinator_model` on the project), else on this pair; `PUT /v1/sessions/{id}/settings` there sets the project's Coordinator model unless its `target` is `bot` or `task`, and an empty choice clears it. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, always present) are the reasoning effort of the Bot model and of the task model. `""` is the model's default (no effort is sent). A task without a task model takes the Bot model with its effort. The first Core start after efforts were added copies the main chat's saved effort to an empty `bot_reasoning_effort` once, when that saved setting names the Bot model.
 - `task_provider_id` and `task_model` (strings, always present) choose the model for a new background task. Both `""` means the Bot model, then Core's default model resolution. A non-empty pair is pinned for every new task: the fallback chain is not used. A pair that names an external agent is ignored at task creation as if it were unset.
@@ -202,7 +202,7 @@ A `PUT` of `display` replaces the whole stored object. A field left out is clear
 ### GET /v1/bot
 
 Auth: any key
-Effect: Returns the Bot profile, creating the main chat the first time it is missing. The first time this process ensures the main chat, it also finishes or drops side chats left half-created or half-deleted.
+Effect: Returns the Bot profile. It creates nothing: before the Bot is saved, `main_session_id` may be `""` and `chats` empty. When a main chat exists, the first read in this process also finishes or drops side chats left half-created or half-deleted.
 
 Request: no body.
 
@@ -248,14 +248,14 @@ Response: `200`
 
 Errors:
 
-- `500` the main chat could not be created, or a half-finished side chat could not be repaired
+- `500` the Bot state file is damaged (the message names it), or a half-finished side chat could not be repaired
 
-Events: `sessions.changed` and `bot.changed` when this read creates the main chat. `bot.changed` when a repair changes the chat list. A read that changes nothing emits nothing.
+Events: `bot.changed` when a repair changes the chat list. A read that changes nothing emits nothing.
 
 ### PUT /v1/bot
 
 Auth: any key
-Effect: Saves the name and description, and optionally the task model or the Bot model. The description sent here is kept as sent, including empty. Also creates the main chat if it does not exist yet.
+Effect: Saves the name and description, and optionally the task model or the Bot model. The description sent here is kept as sent, including empty. Also creates the main chat if it does not exist yet, before the profile is saved, so a configured Bot always has one.
 
 Request:
 
@@ -289,7 +289,7 @@ Errors:
 - `400` Bot conversations run on a configured provider, not an external agent
 - `400` notify_target must be last_active, app_only or a channel kind
 - `400` idle_nudge_minutes must be 0 through 1440
-- `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat happens after a successful save.
+- `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat leaves the profile unsaved.
 
 Events: `bot.changed`. Also `sessions.changed` when this call creates the main chat.
 

@@ -901,7 +901,7 @@ Events: none.
 ### POST /v1/host-screen/viewers
 
 Auth: admin
-Effect: Accepts one complete WebRTC offer and returns the answer for a new view. Capture of the chosen display starts if this is the first viewer on it. The view stays open after the response, until it is deleted, the peer connection fails or closes, viewing is turned off, or the access key that opened it is revoked or regenerated.
+Effect: Accepts one complete WebRTC offer and returns the answer for a new view. Capture of the chosen display starts if this is the first viewer on it. The view stays open after the response, until it is deleted, the peer connection fails or closes, viewing is turned off, or the access key that opened it is revoked.
 
 Request:
 

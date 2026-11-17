@@ -1,6 +1,6 @@
 # Device pairing
 
-Device pairing gives a new device its own ordinary access key. An administrator creates a short-lived code; the device redeems that code with no access key and receives a new secret once. Pairing only adds a key. It cannot list, rename, revoke or regenerate keys, and the new key is not an administrator key.
+Device pairing gives a new device its own access key: an ordinary key, or an administrator key when the administrator asks for one. An administrator creates a short-lived code; the device redeems that code with no access key and receives a new secret once. Pairing only adds a key. It cannot list, rename, revoke or regenerate keys. The role is kept with the code inside Core; the code and any link built from it do not carry it.
 
 A code lives only in memory. Restarting Core drops it. At most 5 codes are active at once: not yet redeemed, and not yet expired. Each code lasts 2 minutes, works once, and is kept only as a hash. The pairing `id` is a different value from the code. It cannot be redeemed. Status and cancel refer to a code by this `id`.
 
@@ -44,7 +44,13 @@ Events: none.
 Auth: admin
 Effect: Creates one pairing code and the address a device should use to reach this Core. When no such address can be named, nothing is created.
 
-Request: no body.
+Request: no body, or
+
+```json
+{ "role": "admin" }
+```
+
+- `role` (string, optional) is `user` (the default) or `admin`: the kind of key the code will create. Any other value, another field, or a body that is not one JSON object of at most 4096 bytes is `400`.
 
 Response: `201`
 
@@ -53,13 +59,15 @@ Response: `201`
   "code": "K3NQW4E6R7T2Y5PAMZXC7HJSBD",
   "core_url": "http://192.0.2.10:15100",
   "expires_at": "2026-10-14T12:02:00Z",
-  "id": "K3NQW4E6R7T2Y5PA"
+  "id": "K3NQW4E6R7T2Y5PA",
+  "role": "user"
 }
 ```
 
 - `code` is the one-time pairing code, returned only here. Show it to the device; a later status read will not repeat it.
 - `id` identifies this code for status and cancel. It is not the code.
 - `expires_at` is 2 minutes after creation, UTC.
+- `role` is the kind of key the code creates, `user` or `admin`. A Core that does not report it creates ordinary keys only and ignores the request body.
 - `relay` and `ck` are present only while the Gyres relay is on ([relay](relay.md)): the relay address for this Core and Core's X25519 Noise public key (base64url, 32 bytes). A pairing link carries them as the `relay` and `ck` fragment keys.
 - `core_url` is the address the device should use. The request is first taken as it arrived: scheme `https` when the connection is TLS, otherwise `http`, and the host header. When the peer is a trusted proxy, exactly one forwarding family is present, and those headers are well formed, that view is replaced by the proxy's scheme and host (`Forwarded`, or `X-Forwarded-Proto` together with `X-Forwarded-Host`). Both families at once, an untrusted peer, or a malformed header leave the connection unchanged.
 - If that host is a non-loopback, non-unspecified IP, or any other non-empty name other than `localhost` in any case, `core_url` is the scheme plus that host, port included.
@@ -77,6 +85,7 @@ Errors:
 }
 ```
 
+- `400` invalid request, or role must be admin or user
 - `429` too many pairing codes are active; wait or cancel one
 
 Events: none.
@@ -84,7 +93,7 @@ Events: none.
 ### POST /v1/pairing/redeem
 
 Auth: none
-Effect: Exchanges one valid pairing code for a new ordinary access key and returns its secret once. The code is consumed before the key is saved, so a second request, a concurrent request, or a failed save cannot mint another key from it.
+Effect: Exchanges one valid pairing code for a new access key of the code's role and returns its secret once. The code is consumed before the key is saved, so a second request, a concurrent request, or a failed save cannot mint another key from it.
 
 Request:
 
@@ -92,7 +101,7 @@ Request:
 { "code": "K3NQW4E6R7T2Y5PAMZXC7HJSBD", "device_name": "iPhone" }
 ```
 
-- `code` (string) is the pairing code. Required for success. Missing, empty, wrong, expired, cancelled and already-used values all fail the same way. Comparison trims surrounding whitespace and ignores letter case.
+- `code` (string) is the pairing code. Required for success. Missing, empty, wrong, expired, cancelled and already-used values all fail the same way, and so does a code whose administrator key has been revoked since it was created. Comparison trims surrounding whitespace and ignores letter case.
 - `device_name` (string, optional) is a label for the new key. Leading and trailing whitespace is removed, runs of whitespace become one space, and control characters and other non-printable characters are dropped. What remains is cut to 40 Unicode code points and trimmed again. If nothing remains, the `User-Agent` header is used, matched in this order, case-insensitive: `iphone` becomes `iPhone`, then `ipad` becomes `iPad`, then `android` becomes `Android`, then `macintosh` becomes `Mac`, then `windows` becomes `Windows`, then `linux` becomes `Linux`, otherwise `新设备`. The stored name is that label, then ` · `, then Core's local month and day with no leading zeros, written `10月4日`.
 - The body is one JSON object of at most 4096 bytes and may contain only these fields.
 
