@@ -67,6 +67,25 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 
 `archived=true` (exactly that string; `1`, `True`, and a missing parameter are the live list) returns archived rows, newest `archived_at` first. Bot conversations and hidden workers' conversations are omitted. Side lanes are not rows.
 
+### Unified list
+
+`all=1` (exactly that string) selects the unified list (#2198), which a client reads once `GET /v1/bot` says `unified_chats: true`. Every conversation is one kind there; the main chat, the channel chats and a Project's Coordinator only hold a role:
+
+- Rows are every top-level conversation: the pinned chats, the Bot chats `/new` set aside, side and parallel chats, and the owner's conversations. A side chat branched from a listed conversation is a row of its own: its `session_id` is `<base>~<lane>`, it has no `first_message` or `message_count`, and its `modified` is its creation or its latest run's end. Rows stay newest `modified` first. Omitted: the supervisor's sessions, the Bot's hidden workers, and a child (a subagent's conversation, or one the Bot opened for a task) whose parent still exists. A child whose parent is gone is a row. A conversation the Bot only sent to is the owner's and is a row.
+- `parent=<session_id>` lists that conversation's children instead: its subagents' conversations, and the conversations and hidden workers the Bot opened for tasks it started (the supervisor's under the main chat). With `parent` the list is unified whether or not `all=1` is sent.
+- `archived=true` with `all=1` lists the archived rows (the archived row shape, no extra fields) with the same rules, the former Bot chats included.
+- A row has these extra fields, all omitted when empty:
+  - `role`: `main`, `channel:<kind>` or `coordinator`;
+  - `pinned_order`: `0` for the main chat, then `1`, `2`, … for the channel chats in kind order;
+  - `project_id`: the workspace binding's Project;
+  - `parent_session`: the conversation it was opened from;
+  - `lane`: `true` for a side chat; its `project_id` is its base's;
+  - `ended`, `channel`: for a pinned chat `/new` set aside, when that happened and the channel kind it served (none for the main chat or a Coordinator).
+- `title` falls back to the title the Bot state keeps for a Bot chat with no title of its own (a Coordinator's: its Project's name).
+- The list changes on `sessions.changed` and `session.*` events, and on `bot.changed` (roles and Projects).
+
+Without `all` or `parent` the list is unchanged, and so is `GET /v1/bot`'s `chats`.
+
 ```json
 {
   "session_id": "2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd-ef0123456789",
@@ -268,7 +287,11 @@ Codex, Grok, pi, Claude, and Cursor can own a conversation. Their provider ids a
 Auth: any key
 Effect: Lists conversations. The live list is the default. `archived=true` lists archived conversations instead.
 
-Query: `archived` (string). Exactly `true` selects the archived list. Any other value, including omitted, selects the live list.
+Query:
+
+- `archived` (string). Exactly `true` selects the archived list. Any other value, including omitted, selects the live list.
+- `all` (string). Exactly `1` selects the [unified list](#unified-list).
+- `parent` (string). A conversation id: its children, in the unified list.
 
 Request: no body.
 
@@ -852,10 +875,10 @@ Request:
 
 - `provider_id` and `model` (strings) are required and must name a model that is available now.
 - `reasoning_effort` and `speed` (strings, optional). A non-empty `reasoning_effort` must be one of that model's `reasoning_efforts` (`GET /v1/models`); for a provider model those are the levels its model list reported, sent as Chat Completions `reasoning_effort` or Responses `reasoning.effort`, and `""` sends none. `speed` must be empty for a provider model. For an external agent, `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
-- `target` (string, optional) applies only in a Bot chat: `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). In a project's Coordinator chat the default is `"project"`: it sets that project's Coordinator model (`provider_id` and `model` both `""` clear it, so its Coordinator chats follow the Bot model). Outside Bot chats it is ignored.
+- `target` (string, optional) applies only in a pinned Bot chat (the main chat, a channel's current chat, a Project's current Coordinator and their lanes; since #2198 a chat `/new` set aside, a side or parallel chat has its own setting like any conversation): `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). In a project's Coordinator chat the default is `"project"`: it sets that project's Coordinator model (`provider_id` and `model` both `""` clear it, so its Coordinator chats follow the Bot model). Outside Bot chats it is ignored.
 - The body is at most 4096 bytes. Other fields are ignored.
 
-A conversation an external agent owns can stay on that agent. Pointing it at a provider, or at a different external agent, is refused. A Bot conversation cannot be pointed at an external agent.
+A conversation an external agent owns can stay on that agent. Pointing it at a provider, or at a different external agent, is refused. A Bot conversation cannot be pointed at an external agent, and neither can a top-level conversation that already ran on Gyres' own models (it ran as the Bot, #2198).
 
 Response: `200`, the same object as `GET /v1/sessions/{id}/settings`, including the saved choice.
 
@@ -871,6 +894,7 @@ Errors:
 - `400` unsupported speed for this model
 - `400` Bot conversations run on a configured provider, not an external agent
 - `409` `This conversation uses {Label}; start a new conversation to switch agents`
+- `409` `This conversation runs on Gyres' own models; start a new conversation to use an external agent`
 - `500` the agent binding or the settings could not be read or saved
 
 Events: `session.settings` when the saved choice changes; in a Bot chat, for every Bot chat when the Bot model changes, and `bot.changed`.

@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.124.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.125.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -2163,13 +2163,14 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `name` (string) is `Gyres Bot` until a save. A save stores the trimmed name.
 - `description` (string) is built-in delegation guidance until the owner saves one. A stored description that is empty, or exactly `Your persistent local assistant.`, is filled with that guidance once, before any request. A save stores the trimmed description, including `""`, and a later empty save stays empty.
 - `main_session_id` (string) is the current main chat. The first read or write that needs it creates the chat.
-- `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the one model of every Bot chat (main chat, side chats, each channel kind's chat, including chats `/new` creates). Both `""` means the Settings default, then the first model Core can use. A Bot chat's own saved model is not used; `PUT /v1/sessions/{id}/settings` in any Bot chat sets this pair. A project's Coordinator chats (with `project_id`) run on that project's Coordinator model when the project has one (`coordinator_model` on the project), else on this pair; `PUT /v1/sessions/{id}/settings` there sets the project's Coordinator model unless its `target` is `bot` or `task`, and an empty choice clears it. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
+- `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the model of the main chat and each channel kind's current chat (including chats `/new` creates) and of the side chats branched from them. Both `""` means the Settings default, then the first model Core can use. Their own saved model is not used; `PUT /v1/sessions/{id}/settings` in one of them sets this pair. Any other conversation, a chat `/new` set aside included, runs on its own setting (see `unified_chats`). A project's Coordinator chats (with `project_id`) run on that project's Coordinator model when the project has one (`coordinator_model` on the project), else on this pair; `PUT /v1/sessions/{id}/settings` there sets the project's Coordinator model unless its `target` is `bot` or `task`, and an empty choice clears it. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, always present) are the reasoning effort of the Bot model and of the task model. `""` is the model's default (no effort is sent). A task without a task model takes the Bot model with its effort. The first Core start after efforts were added copies the main chat's saved effort to an empty `bot_reasoning_effort` once, when that saved setting names the Bot model.
 - `task_provider_id` and `task_model` (strings, always present) choose the model for a new background task. Both `""` means the Bot model, then Core's default model resolution. A non-empty pair is pinned for every new task: the fallback chain is not used. A pair that names an external agent is ignored at task creation as if it were unset.
-- `system_prompt` (string) is the prompt Bot conversations receive: a fixed introduction, then ` Your name is <name>.` when the name is non-empty, then a space and the description when that is non-empty, then a fixed style section. Memory is not part of this string.
+- `system_prompt` (string) is the prompt every conversation that runs as the Bot receives (the pinned chats and the supervisor, and once `configured` is true every other top-level conversation on Gyres' own models, #2198, #2209; the current Coordinator appends its section): a fixed introduction, then ` Your name is <name>.` when the name is non-empty, then a space and the description when that is non-empty, then a fixed style section. Memory is not part of this string.
 - `chats` (array) is every Bot chat, oldest first. See Chats.
 - `channel_chats` (object) maps a kind (`feishu`, `discord`) to the session id of the chat that kind talks to now. Kinds with no chat yet are absent. `{}` when none are bound.
 - `chat_rotation` and `side_chat_branches` are always true: this Core accepts `POST /v1/bot/chats/{id}/new` and a `from` on `POST /v1/bot/chats`.
+- `unified_chats` is always true: every conversation is one kind (#2198) and `GET /v1/sessions?all=1` lists them with their role (see the sessions reference, "Unified list"). `chats` stays as before: every Bot chat record, unchanged, for older clients. A chat that holds no role (set aside by `/new`, a side or parallel chat) runs on its own model setting: Core wrote the model it followed there when it lost its role, and a side or parallel chat opened now starts on the Settings default.
 - `tasks` (array) is newest first. See Tasks.
 - `projects` (array) is every registered project in the order of `GET /v1/projects`, for a project list next to the Bot's chats: `id`, `name`, `available` (the project's directories can be used now), `running` (one of its open chats, the current Coordinator chat or a project chat without `ended`, holds a live turn), and when set `folderless`, `bot_hidden`, `coordinator_session_id` (the current Coordinator chat, absent until `POST /v1/projects/{project}/coordinator` created it) and `run_state` (as for a chat: the Coordinator chat's when it is not `idle`, else the first open chat's that is not `idle`, else `idle`). `[]` when none are registered.
 - `agenda` (array, read only) is the Bot's supervision agenda: open items first, then settled ones, each group most recently updated first. See Agenda. `[]` when empty.
@@ -2379,6 +2380,7 @@ Response: `200`
   ],
   "channel_chats": {},
   "chat_rotation": true,
+  "unified_chats": true,
   "side_chat_branches": true,
   "tasks": [],
   "system_prompt": "You are the user's persistent local Gyres Bot.",
@@ -6375,7 +6377,7 @@ Response: `200`
 ```
 
 - `projects` is the saved projects in the order they were saved, each with `status`. An empty Core returns `[]`.
-- Each project may also carry its Bot fields, each present only when set: `coordinator_session_id` (the project's current Coordinator chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the project is left out of the Bot's project list; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on; absent: the Bot model).
+- Each project may also carry its Bot fields, each present only when set: `coordinator_session_id` (the project's current Coordinator chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the owner hid the project from the main project list; a client shows it in a folded hidden group with its conversations; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on; absent: the Bot model).
 - `host_os` is the operating system of the machine running Core, such as `darwin`, `linux`, or `windows`.
 
 Errors:
@@ -8139,7 +8141,7 @@ Request:
 - `provider_id` and `model` (strings, optional). Omit both to use this conversation's model, then the settings default, then the first available model. If either is sent, that pair is used as given. A conversation whose saved model is no longer available fails until another model is chosen.
 - `reasoning_effort` and `service_tier` (strings, optional). Empty means the model's default. `service_tier` applies only to Codex: it is rejected for Grok, pi, Claude and provider models, and must be one Codex offers (`default` is accepted). For a provider model, a `reasoning_effort` not among its `reasoning_efforts` is dropped and the turn runs on the model's default.
 - `cwd` (string, optional) is the working directory for this turn. Empty uses the conversation's workspace.
-- `system_prompt` (string, optional) replaces the default style for a provider model. A blank value keeps the default. A Bot conversation ignores it. Codex, Grok, pi and Claude reject a non-empty value.
+- `system_prompt` (string, optional) replaces the default style for a provider model. A blank value keeps the default. A conversation that runs as the Bot ignores it: the pinned chats and the supervisor, and since #2198, once the Bot is configured (`GET /v1/bot` `configured`, #2209), every top-level conversation on Gyres' own models. Otherwise it applies: to every other conversation while the Bot is not configured, and always to a conversation the Bot opened for a task and to a subagent's. Codex, Grok, pi and Claude reject a non-empty value.
 - `context_settings` (object, optional) is rejected for Codex, Grok, pi and Claude. For a provider model, `context_window` is an integer from 4096 to 10000000. `output_reserve`, `keep_recent_tokens`, `summary_max_tokens` and `threshold_tokens` are optional integers; omitted or 0 uses 4096, 20000, 2048, and `context_window - output_reserve`. The summary must fit in the output reserve, recent messages must fit under the threshold, and the threshold must leave the output reserve inside the window.
 - `max_turns` (integer, optional) caps steps of this task. When a global cap is enabled, a missing or higher value is lowered to that cap. A lower value is kept.
 - `idempotency_key` (string, optional) is chosen by the client, one per send, at most 128 bytes; Core keeps it in the turn's task record. When the conversation's latest task record carries the same key and was updated within the last 10 minutes, nothing new starts (the body is still decoded, so invalid JSON is `400`, but only the key is compared, not the prompt or other fields): while that run is live the response is its run stream (`200`, from the snapshot, as for the first POST); otherwise `409` `duplicate_request` (below). A different key, or none, is a new send. The key is ignored when task records are not kept. Retry a POST whose connection failed before any answer with the same key.
@@ -8168,6 +8170,7 @@ Errors:
 - `403` `Ask an administrator to turn on "Allow non-administrators" for <Label> in Settings → External agents.`
 - `404` session not found
 - `409` `This conversation uses <Label>; start a new conversation to switch agents`
+- `409` `This conversation runs on Gyres' own models; start a new conversation to use an external agent` when an external agent is named for a top-level conversation that already ran on Gyres' own models
 - `409` `<Label> conversation workspace cannot change`
 - `409` `Start a new conversation to use Codex` (or Grok, pi, Claude) when that agent is asked to take a conversation that already has history
 - `409` `子会话请通过父任务追加工作` — this conversation is a child; send further work from the parent
@@ -9245,6 +9248,25 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 
 `archived=true` (exactly that string; `1`, `True`, and a missing parameter are the live list) returns archived rows, newest `archived_at` first. Bot conversations and hidden workers' conversations are omitted. Side lanes are not rows.
 
+### Unified list
+
+`all=1` (exactly that string) selects the unified list (#2198), which a client reads once `GET /v1/bot` says `unified_chats: true`. Every conversation is one kind there; the main chat, the channel chats and a Project's Coordinator only hold a role:
+
+- Rows are every top-level conversation: the pinned chats, the Bot chats `/new` set aside, side and parallel chats, and the owner's conversations. A side chat branched from a listed conversation is a row of its own: its `session_id` is `<base>~<lane>`, it has no `first_message` or `message_count`, and its `modified` is its creation or its latest run's end. Rows stay newest `modified` first. Omitted: the supervisor's sessions, the Bot's hidden workers, and a child (a subagent's conversation, or one the Bot opened for a task) whose parent still exists. A child whose parent is gone is a row. A conversation the Bot only sent to is the owner's and is a row.
+- `parent=<session_id>` lists that conversation's children instead: its subagents' conversations, and the conversations and hidden workers the Bot opened for tasks it started (the supervisor's under the main chat). With `parent` the list is unified whether or not `all=1` is sent.
+- `archived=true` with `all=1` lists the archived rows (the archived row shape, no extra fields) with the same rules, the former Bot chats included.
+- A row has these extra fields, all omitted when empty:
+  - `role`: `main`, `channel:<kind>` or `coordinator`;
+  - `pinned_order`: `0` for the main chat, then `1`, `2`, … for the channel chats in kind order;
+  - `project_id`: the workspace binding's Project;
+  - `parent_session`: the conversation it was opened from;
+  - `lane`: `true` for a side chat; its `project_id` is its base's;
+  - `ended`, `channel`: for a pinned chat `/new` set aside, when that happened and the channel kind it served (none for the main chat or a Coordinator).
+- `title` falls back to the title the Bot state keeps for a Bot chat with no title of its own (a Coordinator's: its Project's name).
+- The list changes on `sessions.changed` and `session.*` events, and on `bot.changed` (roles and Projects).
+
+Without `all` or `parent` the list is unchanged, and so is `GET /v1/bot`'s `chats`.
+
 ```json
 {
   "session_id": "2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd-ef0123456789",
@@ -9446,7 +9468,11 @@ Codex, Grok, pi, Claude, and Cursor can own a conversation. Their provider ids a
 Auth: any key
 Effect: Lists conversations. The live list is the default. `archived=true` lists archived conversations instead.
 
-Query: `archived` (string). Exactly `true` selects the archived list. Any other value, including omitted, selects the live list.
+Query:
+
+- `archived` (string). Exactly `true` selects the archived list. Any other value, including omitted, selects the live list.
+- `all` (string). Exactly `1` selects the [unified list](#unified-list).
+- `parent` (string). A conversation id: its children, in the unified list.
 
 Request: no body.
 
@@ -10030,10 +10056,10 @@ Request:
 
 - `provider_id` and `model` (strings) are required and must name a model that is available now.
 - `reasoning_effort` and `speed` (strings, optional). A non-empty `reasoning_effort` must be one of that model's `reasoning_efforts` (`GET /v1/models`); for a provider model those are the levels its model list reported, sent as Chat Completions `reasoning_effort` or Responses `reasoning.effort`, and `""` sends none. `speed` must be empty for a provider model. For an external agent, `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
-- `target` (string, optional) applies only in a Bot chat: `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). In a project's Coordinator chat the default is `"project"`: it sets that project's Coordinator model (`provider_id` and `model` both `""` clear it, so its Coordinator chats follow the Bot model). Outside Bot chats it is ignored.
+- `target` (string, optional) applies only in a pinned Bot chat (the main chat, a channel's current chat, a Project's current Coordinator and their lanes; since #2198 a chat `/new` set aside, a side or parallel chat has its own setting like any conversation): `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). In a project's Coordinator chat the default is `"project"`: it sets that project's Coordinator model (`provider_id` and `model` both `""` clear it, so its Coordinator chats follow the Bot model). Outside Bot chats it is ignored.
 - The body is at most 4096 bytes. Other fields are ignored.
 
-A conversation an external agent owns can stay on that agent. Pointing it at a provider, or at a different external agent, is refused. A Bot conversation cannot be pointed at an external agent.
+A conversation an external agent owns can stay on that agent. Pointing it at a provider, or at a different external agent, is refused. A Bot conversation cannot be pointed at an external agent, and neither can a top-level conversation that already ran on Gyres' own models (it ran as the Bot, #2198).
 
 Response: `200`, the same object as `GET /v1/sessions/{id}/settings`, including the saved choice.
 
@@ -10049,6 +10075,7 @@ Errors:
 - `400` unsupported speed for this model
 - `400` Bot conversations run on a configured provider, not an external agent
 - `409` `This conversation uses {Label}; start a new conversation to switch agents`
+- `409` `This conversation runs on Gyres' own models; start a new conversation to use an external agent`
 - `500` the agent binding or the settings could not be read or saved
 
 Events: `session.settings` when the saved choice changes; in a Bot chat, for every Bot chat when the Bot model changes, and `bot.changed`.
