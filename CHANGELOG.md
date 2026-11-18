@@ -16,6 +16,14 @@ Each entry:
     - What changed (endpoint, field or event).
       Migration: what a client must do.
 
+## api_version 5 (Gyres 0.126.0)
+
+- `GET /v1/external-summary` is gone. It summarised this Core's live
+  external-agent conversations (counts and a short list) for another host's
+  status view; no current client called it.
+  Migration: stop requesting the route; use `GET /v1/sessions` and the event
+  stream on the Core you are connected to.
+
 ## api_version 4 (Gyres 0.97.6)
 
 - `POST /v1/skills/preview` is gone; `POST /v1/skills/inspect` (admin)
