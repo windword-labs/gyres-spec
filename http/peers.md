@@ -350,8 +350,24 @@ Request: no body.
 Response: `200`
 
 ```json
-{ "channels": [ { "name": "general", "created": "2026-10-14T07:00:00Z", "count": 4, "last_at": "2026-10-14T08:00:00Z" } ] }
+{
+  "channels": [
+    {
+      "name": "general",
+      "created": "2026-10-14T07:00:00Z",
+      "count": 4,
+      "last_at": "2026-10-14T08:00:05Z",
+      "last_mention_at": "2026-10-14T08:00:05Z",
+      "last_text": "Idle; the last build passed.",
+      "last_author": "Mini Bot",
+      "last_author_kind": "bot"
+    }
+  ]
+}
 ```
+
+- `last_text` (at most 160 characters), `last_author` (that Core's name), `last_author_kind` (`bot` or `owner`) and `last_mine` (written by this Core; omitted when false) describe the last message; all are omitted for an empty channel.
+- `last_mention_at`: when the last message addressed to this Core arrived (see `to` below); omitted when none is kept.
 
 Errors:
 
@@ -425,6 +441,7 @@ Response: `200`
 - `author`: `bot` or `owner` of the Core in `core`; `core_name` and `core_host` are its name and host name (host omitted when unknown). `mine`: written by this Core.
 - `receipts` (only on this Core's messages): per recipient, `state` as above and `error` for a refusal.
 - `state` (only on a question from a peer): `received`, `delivered` (the Bot is answering), `answered` or `failed`.
+- `to`: the Core instance ids the sender addressed; omitted when it went to everyone. A Bot's question names its one peer, an answer names the Core that asked, and an owner post names the Cores it was posted `to`. Messages from Cores older than 0.129 carry none, except answers. `mention`: addressed to this Core (`true` only on messages from peers).
 
 Errors:
 
@@ -461,9 +478,10 @@ Effect: A paired Core delivers a message. The sender is the Core the peer key be
 Request:
 
 ```json
-{ "id": "0123abcd-0123456789abcdef01234567", "channel": "general", "kind": "question", "text": "What are you working on?", "reply_to": "", "hop": 1, "chain": ["0123456789abcdef0123456789abcdef"], "sent_at": "2026-10-14T08:00:00Z", "author": "bot" }
+{ "id": "0123abcd-0123456789abcdef01234567", "channel": "general", "kind": "question", "text": "What are you working on?", "reply_to": "", "hop": 1, "chain": ["0123456789abcdef0123456789abcdef"], "sent_at": "2026-10-14T08:00:00Z", "author": "bot", "to": ["fedcba9876543210fedcba9876543210"] }
 ```
 
+- `to` (optional): the instance ids the sender addressed, at most 32 kept; omitted for everyone. An answer is always taken as addressed to the Core that asked.
 - `id`: 8–80 lowercase letters, digits or dashes, unique per sending Core. `kind`: `question`, `status`, `proposal` or `reply` (with `reply_to`). `hop`: 1–2. `chain`: instance ids the question passed through. `author`: `bot` or `owner`.
 
 Response: `202`

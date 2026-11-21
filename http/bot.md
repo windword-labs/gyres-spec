@@ -649,6 +649,7 @@ Query:
 - `run_ids` (optional) comma-separated run ids: only those runs, in that order; unknown ids are left out. `limit` and `before` are ignored then.
 - `limit` (optional) 1 or more, default 20, at most 100.
 - `before` (optional) a run id from an earlier page: the runs older than it.
+- `session_id` (optional) a Bot chat: only the runs whose `origin_session_ids` name it (applied before the other parameters).
 
 Response: `200`
 
@@ -672,14 +673,15 @@ Response: `200`
       "pruned": false,
       "target_tasks": [
         { "task_id": "bot_3c1f…", "title": "Run the tests", "session_id": "2026-11-15T12-14-02_77ab…", "hidden": true }
-      ]
+      ],
+      "origin_session_ids": ["2026-11-15T12-01-44_5d02…"]
     }
   ],
   "next_before": "turn_6f1c…"
 }
 ```
 
-A run is one turn of the supervisor session (or of a rotated one Core still keeps); `run_id` is that turn's id (`turn.id` on its records). `status` is the turn's (`running` while it runs). `triggers` are the kinds of the inbox events it took (`run_settled`, `task_attention`, `check_due`, `owner_resumed`); `agenda_ids` and `target_session_ids` the items they name and those items' target conversations; `tools` the tool calls in order. `summary` is the stage the run recorded with `bot_agenda`, else the last thing it said, at most 240 characters. `outbox` is true when it told the owner with `bot_outbox`. `target_tasks` are the Bot tasks and Tasks its events, items and `bot_task` calls name that Core still knows: `title`, and `session_id`, the conversation to open (a Bot task's, or a Task's latest attempt; omitted when there is none). `hidden` is true for a hidden Bot task's conversation, which is not in the conversation list and opens as a Bot task. `[]` when none, and for a pruned run. A run whose supervisor session was deleted after rotation comes from its main-chat notice row (see Supervisor) with `pruned: true`; runs that left no row are gone then. `next_before` is present when older runs remain.
+A run is one turn of the supervisor session (or of a rotated one Core still keeps); `run_id` is that turn's id (`turn.id` on its records). `status` is the turn's (`running` while it runs). `triggers` are the kinds of the inbox events it took (`run_settled`, `task_attention`, `check_due`, `owner_resumed`); `agenda_ids` and `target_session_ids` the items they name and those items' target conversations; `tools` the tool calls in order. `summary` is the stage the run recorded with `bot_agenda`, else the last thing it said, at most 240 characters. `outbox` is true when it told the owner with `bot_outbox`. `target_tasks` are the Bot tasks and Tasks its events, items and `bot_task` calls name that Core still knows: `title`, and `session_id`, the conversation to open (a Bot task's, or a Task's latest attempt; omitted when there is none). `hidden` is true for a hidden Bot task's conversation, which is not in the conversation list and opens as a Bot task. `[]` when none, and for a pruned run. `origin_session_ids` are the Bot chats (main, channel, side or Coordinator chat) whose agenda items the run took up, each item's `origin_session_id` as the agenda has it now; `[]` when none (a run about no item, or items no longer in the agenda). A run whose supervisor session was deleted after rotation comes from its main-chat notice row (see Supervisor) with `pruned: true`; runs that left no row are gone then. `next_before` is present when older runs remain.
 
 Errors:
 
