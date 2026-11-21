@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.127.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.128.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -815,6 +815,8 @@ An error from these handlers is `application/json`:
 
 Settings and status require an administrator key. Their responses, including errors, send `Cache-Control: no-store`. `PUT` replaces the whole settings object: a missing boolean is saved as false, a missing string as empty, and then the rules below run. The body is at most 8192 bytes. A body that is not JSON, has an unknown field, or is larger than that is rejected.
 
+Settings responses (`GET` and `PUT`) carry `revision`, which identifies the saved settings. A `PUT` may send it back: when the saved settings changed since, nothing is saved and the answer is `409`. Without `revision` the `PUT` saves as before. To save one switch at once, send the last saved object with that change and its `revision`.
+
 - `enabled`: the agent can run only when true.
 - `executable`: empty, or the bare command name (`codex`, `grok`, `pi`, `claude`, `cursor-agent` or `dsh`), means automatic, and is saved as `""`. Core then uses the newest install it finds. Any other value must be an absolute path.
 - `approval_scope`: `agent` (one approval covers every operation of that agent) or `operation` (each operation type is remembered separately). Anything else, including empty, is saved as `agent`.
@@ -842,6 +844,39 @@ An account object:
 - `credits`: omitted when the account has none. `balance` is the agent's own credit unit, not a currency, and is omitted when it is not a number. `has_credits` and `unlimited` are booleans.
 - `unavailable_reason`: `not_signed_in`, `api_key` or `not_supported`. Omitted when `kind` is `chatgpt` and nothing is wrong. This is why `windows` is empty.
 - `updated_at`: UTC time of the last successful read, omitted when there is none.
+
+### GET /v1/agents/status
+
+Auth: admin
+Effect: Every external agent's cheap status in one request, meaningful while an agent is off. Core reads each agent's settings, looks for the program on the host (file system, cached `--version` results, and a first `--version` probe of a new or updated install, at most 15 s, in parallel for all agents) and takes the sign-in state from the last finished detection. It never starts a detection, an agent session or a network call; `POST /v1/<agent>/status` does that.
+
+Request: no body.
+
+Response: `200`, agents in listing order (`codex`, `grok`, `pi`, `claude`, `cursor`, `dsh`).
+
+```json
+{
+  "agents": [
+    {
+      "id": "codex",
+      "label": "Codex",
+      "enabled": false,
+      "installed": true,
+      "path": "/opt/homebrew/bin/codex",
+      "version": "0.163.0",
+      "signed_in": true,
+      "checked_at": "2026-11-20T08:00:00Z",
+      "checking": false
+    },
+    {"id": "grok", "label": "Grok", "enabled": false, "installed": false, "signed_in": null, "checked_at": null, "checking": false}
+  ]
+}
+```
+
+- `installed`, `path`, `version`: the install the saved settings resolve to now. `path` and `version` are omitted when nothing is found; `version` falls back to the last detection's when the probe gave none.
+- `signed_in`: the last finished detection's `installed` and `logged_in`, `null` when there has been none (an agent that was never enabled or checked). For pi and dsh it means at least one usable model. Never an account name, token or key.
+- `checked_at`: when that detection finished (UTC), or `null`. `checking`: a detection is running.
+- `error`: the last detection's error, omitted when none.
 
 ### GET /v1/codex/settings
 
@@ -2857,6 +2892,53 @@ Errors:
 
 - `404` run not found
 
+### POST /v1/bot/agenda/{id}/cancel
+
+Auth: admin
+Effect: Cancels one open item of the Bot's supervision agenda, as the owner (the same change as the Bot's `bot_agenda` cancel in a turn the owner started). The item stays in the agenda as `cancelled`; its targets are not touched.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{ "item": { "id": "ag_0123456789abcdef", "status": "cancelled" } }
+```
+
+`item` is the whole saved item, the shape of a `GET /v1/bot` `agenda` entry (shortened above).
+
+Errors:
+
+- `403` administrator key required
+- `404` agenda item not found
+- `409` the item is already `completed` or `cancelled`
+
+Events: `bot.changed`.
+
+### POST /v1/bot/agenda/{id}/check
+
+Auth: admin
+Effect: Runs an active item's follow-up now, as when its `next_check_at` falls due: its pre-check runs first when it has one, and the background supervisor is woken with a `check_due` event unless the pre-check output is unchanged. An item without a pre-check always wakes the supervisor. An owner check never counts against the item's automatic-wake limit, and an unchanged pre-check leaves `next_check_at` as it was (only an item that had one moves it on).
+
+Request: no body.
+
+Response: `200`
+
+```json
+{ "outcome": "queued", "item": { "id": "ag_0123456789abcdef", "status": "active" } }
+```
+
+- `outcome` is `queued` (the supervisor will look at the item) or `unchanged` (the pre-check found nothing new; no model request).
+
+Errors:
+
+- `403` administrator key required
+- `404` agenda item not found
+- `409` the item is not `active` (a `waiting_owner` item waits for the owner's answer in a Bot chat)
+- `500` the check could not be queued
+
+Events: `bot.changed`.
+
 ### GET /v1/bot/channels
 
 Auth: admin
@@ -3194,6 +3276,8 @@ Response: `200`
       "name": "hello-gyres",
       "version": "1.2.0",
       "description": "Example plugin",
+      "summary": "Looks up words.",
+      "summaries": { "zh": "查词。" },
       "source": "plugin",
       "enabled": true,
       "required": false,
@@ -3202,6 +3286,8 @@ Response: `200`
       "warnings": [],
       "missing": [],
       "library_note": "Prefer the project library for notes.",
+      "schedules": [{ "id": "daily", "name": "Daily words" }],
+      "counts": { "commands": 0, "hooks": 1, "schedules": 1, "skills": 1, "tools": 1 },
       "handlers": [
         {
           "id": "hello-gyres/on-run",
@@ -3244,6 +3330,7 @@ Response: `200`
           "type": "string",
           "secret": false,
           "label": "Region",
+          "labels": { "zh": "地区" },
           "description": "",
           "required": false,
           "value": "us"
@@ -3278,12 +3365,15 @@ Response: `200`
 - `error` is empty when the plugin loaded. Otherwise it is why the plugin contributes nothing. `warnings` does not stop the plugin. A missing or non `MAJOR.MINOR.PATCH` version (an optional `-pre-release` and `+build` are allowed) is a warning, not an error.
 - `missing` lists required setting keys that have no value. An empty string counts as no value. A non-empty `missing`, a non-empty `error`, or `enabled` false means the plugin is not running.
 - `library_note` is present only when the plugin declares one.
+- `summary` is the plugin's one-line summary (at most 120 characters) and `summaries` maps a language tag such as `zh` to its translation; each is present only when declared. Pick the language as for page `titles`, falling back to `summary`, then `description`.
+- `schedules` are the plans the plugin declares (`id` and plan `name`), `[]` when none.
+- `counts` is what a list row shows: `commands`, `hooks` (handlers for events, not those answering tools or models), `schedules`, `skills`, and `tools` without `settings_page` tools, including tools a resident process listed.
 - `commands` are the plugin's slash commands (empty when none): `name`, `description`, optional `descriptions` (by language tag, such as `zh` or `zh-Hant`), `argument_hint`, `argument_hints` and `subcommands` (`name`, `description`, `descriptions`, `takes_argument`). A command is sent as an ordinary message, `/<name> <text>`, in a conversation where the plugin runs; list them in your `/` menu for Gyres conversations (not external agents).
 - `handlers` are the plugin's hooks. `id` is `name/` plus the id from the plugin. A command argument that was written `./...` is an absolute path. `mode` is `command` (one process per event) or `process` (one long-lived process). `timeout_ms` and `on_error` (`continue` or `stop`) are filled in when omitted in the file. `env` is present only when the handler has environment keys, and every value is `""`. `tool`, `slash`, `project`, `source`, `purpose` and `executor` appear only when set. Setting values are not included.
 - `skills` is empty when the plugin has no skills directory. Each `path` is that skill's file.
 - `tools` is what the plugin declares. `name` is `plugin.tool` (the name people see). `model_name` is `plugin__tool` (the name a model calls). The path of `POST /v1/plugins/{name}/tools/{tool}` uses the short tool name, `look` in the example, not `name` or `model_name`. `side_effect` is `read` or `write` (`write` when omitted). `replay` is `safe`, `never`, `interrupt`, or `""`. `handler` is the namespaced handler id. `settings_page` is present and `true` for a tool that serves the plugin's settings page only: Core never offers it to a model, and only an administrator key may call it. The argument schema is not included.
 - `mcp` is the servers the plugin declares. `transport` is `stdio` or `http`. `env` and `headers` are sorted names only (`null` when there are none); values are never included. `args` is an array, or `null` when omitted.
-- `settings` is the declared list, which may be empty. `type` is `string`, `number`, `boolean` or `enum`. `secret`, `label`, `description` and `required` are always present. `default` and `options` are present only when declared (`options` is for `enum`). A secret has `set` (boolean) and never `value`. A non-secret has `value` only when a value is currently in force.
+- `settings` is the declared list, which may be empty. `type` is `string`, `number`, `boolean` or `enum`. `secret`, `label`, `description` and `required` are always present; `labels` and `descriptions` (per-language versions, by language tag) only when declared. `default` and `options` are present only when declared (`options` is for `enum`). A secret has `set` (boolean) and never `value`. A non-secret has `value` only when a value is currently in force.
 - `web` is `null` when the plugin has no pages. Otherwise it has the keys that are declared: `panel` and `widget` are paths such as `ui/panel.html`, and `page` is `{ "file", "title", "icon", "titles"?, "badge"?, "show_at_zero"? }`. `icon` is `alert`, `inbox`, `list`, `chart`, `bell`, `book`, `flag` or `puzzle`. `titles` maps a language tag such as `zh` to a title. `badge` names one of the plugin's own read tools. `settings` is `{ "file", "title", "titles"? }`: a page shown as a tab of the plugin's detail in Settings → Plugins. `send` is present and `true` when the panel may send a message into its conversation (`POST /v1/plugins/{name}/send`).
 - `installed` is present only for a plugin installed from these routes (`source` of the plugin is `plugin`). `source` inside it is `git`, `path` or `archive`. `url` has no user name, password, query or fragment. `ref_kind` is `branch`, `tag`, `commit`, or absent when the fetch did not say. `commit` is the full commit hash. `sha256` is present for an archive and is the hex digest of the zip. `pinned` is present when true. `installed_at` is UTC, to the second. `update`, when present, is the last check: `checked_at`, `available`, and `remote_commit` when one was seen. A later install clears it.
 
@@ -5049,7 +5139,7 @@ Events: none.
 ### GET /v1/provider-settings
 
 Auth: admin
-Effect: Returns the provider list, which provider is selected, and the revision a later save must send back. API keys are included. Send the whole document back on `PUT /v1/provider-settings`; fields left out are deleted.
+Effect: Returns the provider list, which provider is selected, and the revision a later save must send back. API keys are never returned: `has_key` says whether one is stored. Send the whole document back on `PUT /v1/provider-settings`; fields left out are deleted, except a stored key, which stays unless the save replaces or clears it.
 
 Request: no body.
 
@@ -5066,7 +5156,7 @@ Response: `200`
       "api_format": "chat_completions",
       "enabled": true,
       "base_url": "https://192.0.2.20/v1",
-      "api_key": "example-key",
+      "has_key": true,
       "available": ["demo-model", "demo-small"],
       "active": ["demo-model"],
       "model_names": { "demo-model": "Demo" },
@@ -5087,7 +5177,7 @@ Response: `200`
 - `id` is unique and must not be `local-codex`. `name` is the label. `catalog_id`, when set, picks a known limit table. `custom` is present only when it is true, for a provider the owner added by URL.
 - `protocol` is what `POST /v1/provider-settings/fetch` calls. `api_format` is `chat_completions` or `responses`, and is omitted when unset. Unset means chat completions.
 - `enabled` with an empty `base_url` is refused on save. `base_url` is an `http` or `https` URL with a host and with no user name, password, query or fragment.
-- `api_key` is the credential. It is returned in full. `available` is the last fetched id list. `active` is the models chat may use, in order; the first entry is that provider's contribution to the Settings default. Either list is JSON `null` when missing. Empty maps are omitted.
+- `api_key` is never in a response. `has_key` is true when a key is stored for the provider. `available` is the last fetched id list. `active` is the models chat may use, in order; the first entry is that provider's contribution to the Settings default. Either list is JSON `null` when missing. Empty maps are omitted.
 - `model_names` maps a model id to a display name. `model_images` maps a model id to whether the owner allows images. `image_transport` is `inline` or `files`, and is omitted when unset. `files` is allowed only with `api_format` `responses`.
 - `model_limits` maps a model id to `{context_window, max_output}`. A saved limit must have `context_window` from 4096 to 10000000 and `max_output` from 0 to 10000000. `detected_model_limits` and `detected_models` are what the last fetch reported. `detected_models` values use `name`, `vendor`, `image_input`, `reasoning` and `reasoning_levels`, each omitted when the fetch did not say.
 - `revision` is 64 hexadecimal characters. It changes when the providers change, and when the connection copied from the selected provider changes. `PUT` must send the value from this response.
@@ -5291,7 +5381,7 @@ Request:
 }
 ```
 
-- All four fields may be empty. A known `provider_id` fills each empty field from the saved provider. An unknown `provider_id` with an empty `base_url` is refused. A `base_url` on the request is used as sent.
+- All four fields may be empty. A known `provider_id` fills each empty field from the saved provider. Without `provider_id`, an empty `api_key` uses the key of a saved provider whose `base_url` (and `protocol`, when sent) is exactly the one sent, so a client that never sees keys can fetch for a saved provider. An unknown `provider_id` with an empty `base_url` is refused. A `base_url` on the request is used as sent.
 - `protocol` defaults to `openai`. `anthropic`, `google`, `custom` and `ollama` are recognised. Any other value is called as an OpenAI-compatible list. `custom` tries `{base}/models`, then `{base}/v1/models` when the base path does not already end in a version segment such as `v1`. `ollama` sends no key. The call gives up after 20 seconds.
 - Unknown fields are ignored.
 
@@ -5503,7 +5593,13 @@ Effect: Replaces the provider list and the selected provider, when `revision` is
 
 Request:
 
-The body is the `GET /v1/provider-settings` object. Send every provider you want to keep, including `api_key` and the detected maps. A field you omit on a provider is stored empty.
+The body is the `GET /v1/provider-settings` object. Send every provider you want to keep, including the detected maps. A field you omit on a provider is stored empty, except the key:
+
+- `api_key` non-empty sets the provider's key. Empty or omitted keeps the key stored for that `id` (none for a new id).
+- `clear_api_key: true` removes the stored key.
+- `has_key`, as `GET` returns it, is accepted and ignored.
+
+To save one switch at once while other edits are unsaved, send the last saved document (from `GET` or the previous save's response) with only that change, and its `revision`; then rebase the unsaved edits on the response, which carries the new `revision`.
 
 - `revision` must be the current value. An empty or stale revision saves nothing.
 - Provider `id` values are non-empty and unique, and none is `local-codex`. `selected_id` is empty or one of those ids.
@@ -5514,7 +5610,7 @@ The body is the `GET /v1/provider-settings` object. Send every provider you want
 
 Response: `200`
 
-The body is the saved provider document, the same shape as `GET /v1/provider-settings`, with the new `revision`.
+The body is the saved provider document, the same shape as `GET /v1/provider-settings` (no keys), with the new `revision`.
 
 Errors:
 
@@ -6376,7 +6472,7 @@ Response: `200`
       "status": {
         "available": true,
         "directories": [
-          { "path": "/work/demo", "available": true },
+          { "path": "/work/demo", "available": true, "git": { "branch": "main", "dirty": 3, "ahead": 2, "behind": 0 } },
           { "path": "/work/notes", "available": true }
         ]
       }
@@ -6385,6 +6481,8 @@ Response: `200`
   "host_os": "darwin"
 }
 ```
+
+- Each available folder in `status.directories` (not the library) has `git` when it is inside a git work tree: `branch` (`""` on a detached HEAD), `dirty` (changed and untracked paths, `0` when clean), `ahead` and `behind` (commits against the branch's upstream as last fetched; `0` without an upstream). Core reads it with one local `git status`, never fetches, waits at most 2 seconds per folder and reuses an answer for 10 seconds, so `ahead`/`behind` lag until something fetches. `git` is absent when the folder is not in a repository, git is not installed, or git did not answer in time. Only this route fills it.
 
 - `projects` is the saved projects in the order they were saved, each with `status`. An empty Core returns `[]`.
 - Each project may also carry its Bot fields, each present only when set: `coordinator_session_id` (the project's current Coordinator chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the owner hid the project from the main project list; a client shows it in a folded hidden group with its conversations; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on; absent: the Bot model).
@@ -7028,9 +7126,10 @@ Query: `session_id`, `project_id`, `cwd`, `manage_scope`, `q`. When more than on
 - `session_id` (string) is a conversation id. The list is that conversation's catalog, as above. A conversation with no workspace lists global skills (plus plugin and built-in skills under the rules above). A scratch conversation does not list project skills. The conversation's own directory is not scanned.
 - `project_id` (string) is a project id. The list is a live reading for that project's directories. The library directory is scanned only when the project has no folders; otherwise skills are read from the project's own directories, skipping an additional directory that is missing.
 - `cwd` (string) is an absolute directory on the machine running Core, used as one project directory with no library. Global skills are included. Skills that require a library are not.
-- With none of those three, the list is the global skills, plus plugin and built-in skills, and skills that require a library are left out. `manage_scope=all` together with none of those three is the management list: a fresh reading of every available project's primary directory, plus global, plugin, and built-in skills, including skills that require a library. A project whose primary directory is unavailable is skipped.
+- With none of those three, the list is the global skills, plus plugin and built-in skills, and skills that require a library are left out. `manage_scope=all` together with none of those three is the management list: a fresh reading of every available project's primary directory, plus global, plugin, and built-in skills, including skills that require a library and skills a same-named skill of higher precedence (project, then global, then plugin, then built-in) hides from a conversation's catalog. A project whose primary directory is unavailable is skipped.
 - `manage_scope` (string) filters the list when it is set. `all` keeps every source. `global` keeps `source` `global`. `builtin` keeps `source` `builtin`. `project` keeps a source that is not `global`, not `builtin`, and does not start with `plugin:`. Any other value leaves `skills` empty. `warnings` is unchanged.
 - `q` (string) is a case-insensitive substring of `name` or `description`. It applies only when `manage_scope` is set. An empty `q` does not narrow the list.
+- When `manage_scope` is set, each skill also carries `requires` (the conditions from its frontmatter, such as `["library"]`; omitted when none), `versions` (how many versions its history keeps; omitted when none or for plugin and built-in skills) and `learned` (only for a global or project bundle the Agent created: `created_by` `chat` or `review`, `session_id` of the conversation it was created in when recorded, and `reviewed`). `reviewed` is `true` once the owner marked it with `POST /v1/skills/review`, or when it was created more than 14 days ago. The response also carries `warning_details`: the `warnings` as `{path, reason}` objects (`path` is the file or directory, or `builtin <name>`).
 
 Request: no body.
 
@@ -7051,6 +7150,26 @@ Response: `200`
 }
 ```
 
+With `manage_scope`:
+
+```json
+{
+  "skills": [
+    {
+      "name": "release-notes",
+      "description": "Write release notes",
+      "path": "/home/me/.gyres/skills/release-notes/SKILL.md",
+      "source": "global",
+      "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "versions": 2,
+      "learned": { "created_by": "chat", "session_id": "s_123", "reviewed": false }
+    }
+  ],
+  "warnings": ["/home/me/.gyres/skills/broken/SKILL.md: missing YAML frontmatter"],
+  "warning_details": [{ "path": "/home/me/.gyres/skills/broken/SKILL.md", "reason": "missing YAML frontmatter" }]
+}
+```
+
 Errors:
 
 - `400` invalid project cwd "<path>": workspace unavailable; restore the directory or choose another location
@@ -7068,9 +7187,10 @@ Effect: Downloads a URL and lists the skill bundles it holds, without installing
 Request:
 
 ```json
-{ "url": "https://github.com/example/skills" }
+{ "url": "https://github.com/example/skills", "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b" }
 ```
 
+- `project_id` (string) is optional: a registered, available project whose install directory `targets.project` should name.
 - `url` (string) is required, at most 2048 characters, `http` or `https`, with a host and no user info. `localhost`, names ending in `.localhost` or `.local`, and loopback, private, link-local, multicast, unspecified and RFC 6598 (`100.64.0.0/10`) addresses are refused, also after DNS lookup and on every redirect.
 - The body is JSON of at most 4096 bytes. Unknown fields are ignored.
 - Limits: one download at most 50 MB, an archive walked for at most 512 MB decompressed, a bundle at most 20 MB and 500 files, `SKILL.md` at most 256 KiB. The download times out after 2 minutes.
@@ -7096,9 +7216,12 @@ Response: `200`
       "skipped": [".DS_Store"]
     }
   ],
-  "warnings": ["skills/broken/SKILL.md: invalid name or description"]
+  "warnings": ["skills/broken/SKILL.md: invalid name or description"],
+  "targets": { "global": "/Users/me/.gyres/skills", "project": "/work/demo/.agents/skills" }
 }
 ```
+
+- `targets` are the absolute directories `POST /v1/skills/install` writes to on the machine running Core: `global` for scope `global`, `project` for scope `project` in the given `project_id` (the library's `.agents/skills` for a project without folders). `project` is `null` without `project_id`; either is `null` when that scope is unavailable.
 
 - `kind` is `skill` (the URL was one `SKILL.md`; its bundle `path` is `.`), `github`, `archive`, or `page` (an ordinary web page or another document: `bundles` is empty and a warning says so; this is not an error).
 - `bundles` are sorted by `path`, the directory inside the source (`.` for its root). `files` are sorted, relative to the bundle; `exec` marks an executable file. `skipped` lists entries left out: hidden files, links and devices. A bundle over the limits, or whose files differ only by ASCII letter case, has `error` and no `digest`, `files` or `size`, and cannot be installed.
@@ -7109,7 +7232,9 @@ Errors:
 
 - `400` `invalid URL request`
 - `400` the URL was refused or could not be fetched: `URL is required and must be at most 2048 characters`, `URL must be an http or https address`, `local and private network URLs are not allowed`, `could not fetch <url>: ...`, `<url> returned HTTP <status>`, `download exceeds 50 MB`, `<url> is not a zip or tar.gz archive`, an archive that is invalid, expands past 512 MB or has a member with an absolute path, `..` or a backslash
+- `400` project directories are unavailable (with `project_id`)
 - `403` the key is not an administrator's
+- `404` project not found (with `project_id`)
 
 Events: none.
 
@@ -7210,6 +7335,79 @@ Errors:
 - `404` Skill is not removable
 - `409` Skill changed; refresh the list and try again (this is also the result when `expected_digest` is empty)
 - `500` the file could not be removed
+
+Events: none.
+
+### POST /v1/skills/review
+
+Auth: admin
+Effect: Marks a skill the Agent learned as looked at by the owner. Only the bundle's hidden `.gyres.json` marker changes: no history version is recorded and the catalog text is unchanged. The response sends `Cache-Control: no-store`.
+
+Request:
+
+```json
+{
+  "path": "/home/me/.gyres/skills/release-notes/SKILL.md",
+  "expected_digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}
+```
+
+- The body is one JSON object of at most 8192 bytes and may contain only these fields.
+- `path` (string) is required, as in `POST /v1/skills/uninstall`: a global or project skill of the management list.
+- `expected_digest` (string) must equal that skill's current `digest`.
+
+Response: `200`
+
+```json
+{
+  "path": "/home/me/.gyres/skills/release-notes/SKILL.md",
+  "learned": { "created_by": "chat", "session_id": "s_123", "reviewed": true }
+}
+```
+
+Errors:
+
+- `400` path and expected_digest are required
+- `403` the key is not an administrator's
+- `404` Skill not found (not listed, or a plugin or built-in skill)
+- `409` Skill changed; refresh the list and try again (also when `expected_digest` is empty)
+- `409` this skill was not learned by the Agent
+
+Events: none.
+
+### GET /v1/skills/bundle
+
+Auth: admin
+Effect: Reads one skill of the management list for display: the files of its bundle and the text of its `SKILL.md`. Nothing is recorded. Hidden files and folders and symbolic links are left out of the file list. The response sends `Cache-Control: no-store`.
+
+Query:
+
+- `path` (string, required) is a skill's `path` from the management list of `GET /v1/skills` (or an absolute path resolving to it). Any other path is refused.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "path": "/home/me/.gyres/skills/release-notes/SKILL.md",
+  "files": [
+    { "path": "SKILL.md", "size": 1432 },
+    { "path": "scripts/check.sh", "size": 210 }
+  ],
+  "truncated": false,
+  "content": "---\nname: release-notes\n..."
+}
+```
+
+- `files` are paths relative to the bundle folder with `/` separators, sorted, at most 200; `truncated` is `true` when there are more.
+- `content` is `SKILL.md` as text, at most 256 KiB.
+
+Errors:
+
+- `403` the key is not an administrator's
+- `404` Skill not found
+- `500` the bundle could not be read
 
 Events: none.
 
@@ -7896,9 +8094,10 @@ Response: `200` `{"tasks": [ … ]}`, each task as in [`GET …/task`](#get-v1se
 - `reason`: why a standalone task is `capped`, `paused` or `cancelled` (for example `reached its budget of 3 attempt(s)`). `capped_until`: when a standalone task capped by its `daily_tokens` takes attempts again (the next local midnight).
 - `tokens_today` (always present): the tokens of the task's attempts started since local midnight, what `daily_tokens` measures. `next_wake`: the task's next wake, when it has one: its lane's goal or loop wake, else the next run of an active plan that advances it.
 - `project_name`: the Project's name (absent for global work or a Project that no longer exists). `initiator_name`: the initiator's readable name, the access key's name or, for `schedule:<plan id>`, the plan's. `plans`: the plans whose `task_id` is this task, `{id, name, state}` (standalone tasks).
+- `approval` (Core 0.128+): while `notice` is `approval:…` and an approval still waits in the latest attempt's conversation, the oldest one as the approvals list shows it: `{id, tool, summary, count}`, `tool` being the tool's label (else its name), `summary` the request's resource on one line, at most 160 characters (for a resource that is a tool's JSON input, its `command`, `cmd`, `path` or `url`), and `count` how many wait there.
 - A standalone task's attempt also has `source` (what started it: `schedule:<plan id>`, `owner` for a plan's "run now" or the board's advance, `bot_task`) and, for a scheduled attempt, `report` (`notify`, `quiet` or `complete`, what the run reported). Attempts recorded before Core 0.114 have neither.
 
-A plugin page may read these through its hook token: see [Tasks for plugin pages](#tasks-for-plugin-pages). A Bot task's `bot.result` is left out there, and the answer adds `projects`: the registered Projects, `[{id, name}]` (a page cannot read `GET /v1/projects`).
+A plugin page may read these through its hook token: see [Tasks for plugin pages](#tasks-for-plugin-pages). A Bot task's `bot.result` is left out there, and the answer adds `projects`: the registered Projects, `[{id, name}]` (a page cannot read `GET /v1/projects`), and (Core 0.128+) `options`, the Tasks board's new-task choices without secrets: `models` (`[{provider_id, provider_name, model, name}]`, the enabled providers' activated models), `default_model` and `executors` (`[{executor, label}]`, the external agents that are enabled with unattended use on).
 
 Errors: `403` a hook token outside that grant; `503` tasks are not available; `500` the tasks could not be read.
 
@@ -7929,6 +8128,8 @@ Request:
   "cwd": "",
   "provider_id": "",
   "model": "",
+  "executor": "",
+  "wake": {"kind": "interval", "seconds": 86400},
   "budget": {"max_attempts": 10}
 }
 ```
@@ -7937,15 +8138,17 @@ Request:
 - `title` (optional, at most 200 characters): defaults to the objective's first line, cut to 80 characters.
 - `project_id` (project id or name) and `cwd` (absolute directory on the Core host) bind the attempts' conversations; both empty uses a scratch directory.
 - `provider_id`/`model` as for schedules; an external agent (`local-claude`, …) needs `project_id` or `cwd` and its unattended use on. Empty uses the plan's model (a schedule) or the Bot's task model (`bot_task send`).
+- `executor` (optional, Core 0.128+): `gyres` (or empty) for Core's own loop, else an external agent by its executor name (`claude`, `grok`, …), which sets `provider_id` to that agent's; a different `provider_id` is `400`.
+- `wake` (optional, Core 0.128+): a cadence, the `timing` of [a schedule](schedules.md) (`interval`, `daily` or `weekly`). Core creates the plan that advances the task in the same request (standalone mode, `task_id` this task, named after its title, on the task's model); the timing is checked first, and the task is removed again when the plan still cannot be saved, so a refused `wake` creates nothing.
 - `budget` (each 0 = none): `max_attempts` (0 to 100000): after that many attempts the task becomes `capped`; `max_days` (0 to 365): `capped` once that many days have passed since it was created; `daily_tokens`: `capped` until the next local midnight once its attempts started today used that many tokens (`max_days` and `daily_tokens` Core 0.114+, from Phase 4). `max_iterations` is a loop's and is refused.
 
-Response: `200` the task: `id` (`tk_` plus 16 hex characters), `status` `waiting`, `attempts` `[]`, `initiator` the access key id.
+Response: `200` the task as in `GET /v1/tasks/{id}`: `id` (`tk_` plus 16 hex characters), `status` `waiting`, `attempts` `[]`, `initiator` the access key id, and with `wake` its plan in `plans` and `next_wake`.
 
 Statuses of a standalone task: `waiting` (between attempts), `active` (an attempt runs), `complete` (a scheduled attempt reported `complete` and `has_completion` is true; without a criterion the report only completes the plan), `capped` (a budget reached), `paused` and `cancelled` (the owner's [controls](#post-v1tasksidaction)). An attempt is `{session, lane, run, started, ended, outcome, tokens}` as for loops; one attempt runs at a time.
 
 When a task becomes `blocked`, `capped` or `usage_limited`, or one of its attempts waits on an approval, Core posts one notice into the Bot main chat and forwards it to the chat channel the owner wrote from most recently (none configured: the main chat only). A `failed` task gets no notice.
 
-Errors: `400` invalid body, missing objective, unknown project, invalid `cwd`, invalid budget, unavailable model or agent; `503` tasks are not available.
+Errors: `400` invalid body, missing objective, unknown project, invalid `cwd` (with `project_id`, a `cwd` outside the Project's directories, Core 0.128+), invalid budget, unavailable model or agent, unknown `executor`, invalid `wake` (the message starts `wake:`); `503` tasks are not available.
 
 Events: none.
 
@@ -9255,6 +9458,8 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 - `scheduled`, when present, is `{"job_id","name","run_id"}` for a conversation a standalone scheduled run created.
 - `origin`, when present on a list row, is only a Bot origin (below). A terminal import's origin is not on the list.
 - `unseen_kind` is omitted when `unseen` is `""`. When present it is `user`, `scheduled`, `bot_task`, `external`, `wake`, `goal`, or `recovery`.
+- `run_reason_code`, on a live list row, is the run state's `reason_code` (as `GET /v1/sessions/{id}/run-state` gives it) while `run_state` is `blocked`, `interrupted` or `paused`; omitted otherwise. `auto_resume_off` marks an interrupted task that waits for the owner instead of resuming by itself.
+- `attention`, on a live list row, is what the conversation waits on the owner for besides approvals and questions: `capped`, `budget_limited`, `usage_limited` or `blocked` (the needs-attention status of the Task the row belongs to: its goal, its loop, or a standalone or Bot Task whose latest attempt ran there; archived Tasks never count), or `quota` (the last run failed at the provider's balance or rate limit and is still unseen; cleared with `unseen`). When several apply: `quota`, `usage_limited`, `budget_limited`, `capped`, `blocked`. `attention_reason` is the Task's reason in plain text (at most 200 characters), omitted when there is none and for `quota`. Both are omitted when nothing applies; older Cores omit them. Core publishes `sessions.changed` for the row when a Task's attention changes without a run ending.
 
 `archived=true` (exactly that string; `1`, `True`, and a missing parameter are the live list) returns archived rows, newest `archived_at` first. Bot conversations and hidden workers' conversations are omitted. Side lanes are not rows.
 
@@ -9270,6 +9475,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
   - `pinned_order`: `0` for the main chat, then `1`, `2`, … for the channel chats in kind order;
   - `project_id`: the workspace binding's Project;
   - `parent_session`: the conversation it was opened from;
+  - `parent_run_id`, `parent_call_id`: for a subagent or external-agent child, the parent's run (`run_id` of `GET /v1/sessions/{id}/runs`) and the tool call that dispatched it; a follow-up dispatch moves them to that later run and call. `parent_call_id` is `""` for a child dispatched before Gyres recorded it whose parent's receipt no longer holds the link;
   - `lane`: `true` for a side chat; its `project_id` is its base's;
   - `ended`, `channel`: for a pinned chat `/new` set aside, when that happened and the channel kind it served (none for the main chat or a Coordinator).
 - `title` falls back to the title the Bot state keeps for a Bot chat with no title of its own (a Coordinator's: its Project's name).
@@ -9333,7 +9539,7 @@ Without `all` or `parent` the list is unchanged, and so is `GET /v1/bot`'s `chat
 
 `from_message_id` is the message the lane branched from, or `""` when it branched at the start or that id cannot be read. `shared_count` is how many leading records have `shared: true`.
 
-`parent_session` is included when task records are kept: the parent conversation id, or `""` when there is none. It is omitted when task records are not kept.
+`parent_session` is included when task records are kept: the parent conversation id, or `""` when there is none. It is omitted when task records are not kept. A subagent or external-agent child also has `parent_run_id` and `parent_call_id`, as in the conversation list above.
 
 `executor` is `gyres` unless an external agent owns the conversation, then `codex`, `grok`, `pi`, `claude`, or `cursor`. If more than one binding is present, the last one applied wins, in that order, so Cursor wins over Claude, pi, Grok, then Codex. `executor_model` is that binding's model. `executor_options` for Codex is `{"reasoning_effort","service_tier"}`, either of which may be `""`. For Grok, pi, Claude and Cursor it is `{"reasoning_effort"}` only (always `""` for Cursor).
 
@@ -10066,7 +10272,7 @@ Response: `200`
   "session_id": "2026-10-17T10-00-00_…",
   "totals": {
     "input_tokens": 41000, "output_tokens": 6900, "cache_read_tokens": 32000, "cache_write_tokens": 0,
-    "cost_usd": null, "calls": 19, "timed_calls": 17, "speed_tps": 66.1, "first_token_median_ms": 1100
+    "cost_usd": null, "calls": 19, "timed_calls": 17, "speed_tps": 66.1, "first_token_median_ms": 1100, "first_token_p90_ms": 2600
   },
   "models": [
     {"provider_id": "volc", "model": "glm-5", "purpose": "chat", "fallback": false, "calls": 14, "timed_calls": 13, "output_tokens": 5600, "speed_tps": 81.3, "first_token_median_ms": 1100},
@@ -10082,14 +10288,14 @@ An external-agent conversation (Codex, Grok, Claude):
 ```json
 {
   "session_id": "…",
-  "totals": {"input_tokens": 52000, "output_tokens": 6900, "cache_read_tokens": 40000, "cache_write_tokens": 0, "cost_usd": 0.09, "calls": 0, "timed_calls": 0, "speed_tps": null, "first_token_median_ms": null},
+  "totals": {"input_tokens": 52000, "output_tokens": 6900, "cache_read_tokens": 40000, "cache_write_tokens": 0, "cost_usd": 0.09, "calls": 0, "timed_calls": 0, "speed_tps": null, "first_token_median_ms": null, "first_token_p90_ms": null},
   "models": [],
   "agent": {"executor": "claude", "turns": 7, "timed_turns": 7, "output_tokens": 6900, "speed_tps": 22.4, "speed_basis": "api_duration"}
 }
 ```
 
-- A model call is **timed** when it has a first-token time, finished after it, and its usage was reported with output tokens. `speed_tps` is Σ output tokens of timed calls ÷ Σ (stream end − first token) of those calls in seconds, to one decimal; never an average of per-call speeds. `first_token_median_ms` is the median of (first token − request sent) over timed calls. Both are `null` when `timed_calls` is 0, never 0. Untimed calls count in `calls` only.
-- `totals` token counts and `cost_usd` cover every row, external-agent turns included. `calls`, `timed_calls`, `speed_tps` and `first_token_median_ms` cover Core's own model calls only. `cost_usd` is `null` when no row carried a cost (Core does not price its own requests; external agents report their own estimate).
+- A model call is **timed** when it has a first-token time, finished after it, and its usage was reported with output tokens. `speed_tps` is Σ output tokens of timed calls ÷ Σ (stream end − first token) of those calls in seconds, to one decimal; never an average of per-call speeds. `first_token_median_ms` is the median of (first token − request sent) over timed calls; `totals.first_token_p90_ms` its nearest-rank 90th percentile (the smallest value with at least 90% of timed calls at or below it), as in `GET /v1/usage`'s summary. They are `null` when `timed_calls` is 0, never 0. Untimed calls count in `calls` only.
+- `totals` token counts and `cost_usd` cover every row, external-agent turns included. `calls`, `timed_calls`, `speed_tps`, `first_token_median_ms` and `first_token_p90_ms` cover Core's own model calls only. `cost_usd` is `null` when no row carried a cost (Core does not price its own requests; external agents report their own estimate).
 - `models` has one row per provider, model, purpose and `fallback` (true when a model of the fallback chain served the call in place of the conversation's model). `purpose` is `chat` for the conversation's own turns; anything else (`compaction`, `memory_review`, a plugin's purpose) is background work on the conversation's behalf. `chat` rows come first, then by `output_tokens` descending. External-agent turns are not listed here.
 - `agent` is `null` unless the conversation is bound to an external agent or has turns from one; a bound conversation before its first turn has zero counts. External agents only report per-turn durations, so a turn counts toward `speed_tps` (`timed_turns`) when its usage was reported and it has a duration. `speed_basis` is `api_duration` when every such turn carried the agent's own time in model requests (Claude), else `turn_wall_clock`, the turn's wall-clock time including tools. `speed_tps` is `null` when no turn counts.
 
@@ -10100,6 +10306,69 @@ Errors:
 - `500` a binding cannot be read
 
 Events: none. Refetch after a run's `usage` frames or `session.agent_usage`.
+
+### GET /v1/sessions/{id}/runs
+
+A conversation's recent runs with an ordered timeline each, for the Run analysis page. One request covers a page of runs; nothing else needs fetching per run. A side chat's handle lists only that lane's runs; a child conversation's runs are in the child conversation.
+
+Query: `limit` (1–20, default 10), `before` (a `run_id` from a previous page: older runs only).
+
+```json
+{
+  "session_id": "…",
+  "runs": [{
+    "run_id": "task_…", "executor": "agent", "source": "user",
+    "started_at": "2026-11-21T10:00:00Z", "finished_at": "2026-11-21T10:01:12Z",
+    "outcome": "completed", "stop_reason": "", "code": "", "duration_ms": 72000,
+    "resumed": [{"at": "2026-11-21T10:00:40Z", "cause": "restart"}],
+    "truncated": false,
+    "spans": [
+      {"kind": "model", "start": "…", "end": "…", "step": 1, "usage_id": "…", "request_id": "task_….s1", "attempt": 1, "provider_id": "volc", "model": "glm-5", "purpose": "chat", "first_token_at": "…", "usage_state": "reported", "output_tokens": 412, "status": "completed"},
+      {"kind": "approval", "start": "…", "end": "…", "step": 1, "call_id": "call_1", "name": "exec_command", "approval_id": "…", "status": "approved"},
+      {"kind": "tool", "start": "…", "end": "…", "step": 1, "attempt": 1, "call_id": "call_1", "name": "exec_command", "title": "go test ./internal/usage", "status": "ok"},
+      {"kind": "child", "start": "…", "end": "…", "step": 2, "call_id": "call_2", "name": "helper", "child_session_id": "…", "child_task_id": "…", "status": "completed"}
+    ]
+  }],
+  "next_before": "task_…"
+}
+```
+
+- `runs` are newest first. `next_before` is the `before` of the next page, `null` on the last.
+- `outcome` is `completed`, `failed`, `aborted`, `declined`, or `running` while the run has no finish record (also a run Core stopped in, until the next run closes it). `executor` is `agent` for Core's own loop, else the external agent's name. `resumed` lists continuations after a restart, a manual Continue or a parent's resume.
+- `spans` are sorted by `start`. `end` is `null` while open; once the run has finished every span has an `end` (a span still open then ends at `finished_at`), so a finished run's timeline does not change over time. `step` is the run's step (1-based) where known. Kinds:
+  - `model`: one model request attempt, from the usage records: retries and fallbacks of a step share `request_id` and `step`, with `attempt` and `fallback_from`; `failed_request` names the raw entry of a failed attempt ([below](#get-v1sessionsidfailed-requestsentry)); `output_tokens` is absent when no usage arrived. `status` is the usage status.
+  - `compaction`, `background` (other purposes, such as plugin requests; `purpose` names it) and `memory_review` (placed on the newest run that started before it; reviews are not tied to a run): model requests of the same shape.
+  - `agent_turn`: one external-agent turn (its usage record).
+  - `tool`: one tool admission: `start` when it began to run (after any approval), `end` when its result was stored. `status` is `ok`, `error`, `running`, or `interrupted` (an attempt Core stopped in, or the run ended without its result). `title` is a short label from its first argument among path, pattern, query, command, URL or name: one line, at most 80 characters, secret-like values `[redacted]`. Arguments and outputs are never included.
+  - `approval`: a wait for a decision: `start` when it was asked, `end` when decided; `status` is the approval's (`approved`, `rejected`, `denied`, `expired`, `cancelled`, `pending`); `resolver` names a decider other than a person.
+  - `child`: a subagent or external-agent child dispatched by `call_id` in `step`, from its dispatch to the end of the child's own run (read from the child conversation; a child the parent did not wait for may end after the parent's run). `status` is `completed`, `failed` or `interrupted` (its run was stopped, or no end of it was recorded and the parent's run ended), or the outcome its delivery recorded; `running` while the child's run is open, which after the parent's run ended keeps `end` at `finished_at`.
+- A run has at most 400 spans; `truncated` is `true` when more were left out.
+- Older runs: requests recorded before Gyres kept call timing have no `first_token_at` or `step`. Runs converted from receipts written before the operation log have no tool or child spans. External-agent runs have their turns only, not the agent's own tool calls. A compaction a hook supplied sent no request and has no span.
+
+Errors: `400` invalid `limit`, `404` session not found or `before` is not one of its runs, `500` a record file cannot be read.
+
+Events: none. Refetch after the run's `result` or `session.*` events.
+
+### GET /v1/sessions/{id}/failed-requests/{entry}
+
+Administrators only. One kept raw failed model request of the conversation: `entry` is a usage record's `failed_request` (`GET /v1/usage` rows). Core keeps the newest 20 per conversation (16 MiB at most), so an older entry may be gone. A side chat's handle reads only its own lane's entries.
+
+```json
+{
+  "version": 1, "id": "…", "at": "2026-11-21T10:00:05Z",
+  "session_id": "…", "run_id": "…", "request_id": "….s3", "step": 3, "attempt": 2, "usage_id": "…",
+  "purpose": "chat", "provider": "volc", "format": "chat_completions", "endpoint": "https://example.com/v1/chat/completions", "model": "glm-5",
+  "request": {"model": "glm-5", "messages": []}, "request_bytes": 48210,
+  "status": 429, "headers": {"retry-after": "3"}, "response_body": "{\"error\":…}", "error": "429 Too Many Requests"
+}
+```
+
+- `request` is the body as sent when it was valid JSON within 4 MiB; otherwise `request_text` holds its first bytes and `request_truncated` is `true`. `response_body` keeps at most 64 KiB.
+- Never present: request headers (authorization), response headers that may carry credentials or session state, endpoint user info and credential-like query values. Values matching the secret rules of [privacy masking](../../docs/privacy-masking.md) anywhere in the request, response body, error or headers read `[redacted]`. Other conversation content is returned as it was sent.
+
+Errors: `403` not an administrator, `404` session or entry not found, `500` the file cannot be read.
+
+Events: none.
 
 ### GET /v1/sessions/{id}/workspace
 
@@ -11341,6 +11610,22 @@ Response: `200`
         "moves": true
       }
     ]
+  },
+  "process": {
+    "rss_bytes": 52428800,
+    "cpu_percent": 1.5,
+    "num_gc": 12,
+    "last_gc_at": "2026-10-14T11:59:58Z",
+    "open_files": 40,
+    "open_files_limit": 10240
+  },
+  "system": { "load1": 1.2, "load5": 0.9, "load15": 0.7 },
+  "active": { "conversations": 1, "subagents": 0, "scheduled": 0 },
+  "space": {
+    "data": { "free_bytes": 100000000000, "total_bytes": 500000000000, "level": "ok" },
+    "home": { "free_bytes": 100000000000, "total_bytes": 500000000000, "level": "ok" },
+    "same_volume": true,
+    "checked_at": "2026-10-14T11:59:50Z"
   }
 }
 ```
@@ -11351,12 +11636,178 @@ Response: `200`
 - `storage.measured_at` is when the disk scan ran. A call within 30 seconds of that time returns the same `storage` object, including a `partial` one. Wait until `measured_at` is 30 seconds old before expecting a new scan.
 - `bytes` and `files` are logical sizes of regular files, counted once. Symlinks are not followed and are not counted. `partial` is true when the scan stopped early (2 seconds, 100,000 entries, or an entry that could not be read). `skipped` counts entries that were not measured: unreadable entries, symlinks and files that are not regular.
 - `categories` contains only ids that have at least one counted file, largest `bytes` first, then `id` ascending. `home_bytes` / `home_files` are the part under `home`. `data_bytes` / `data_files` are the part under `data_dir` when that path is different; otherwise they are `0` and the whole total is in the home fields. A data directory inside the home is not counted twice.
-- `id` is one of `conversations`, `browser`, `code`, `bot`, `runtimes`, `workspaces`, `memory`, `skills`, `plugins`, `visualizations`, `mcp`, `approvals`, `access`, `logs`, `cache`, `backups`, `tasks`, `other`.
+- `id` is one of `conversations`, `browser`, `code`, `bot`, `runtimes`, `workspaces`, `memory`, `skills`, `plugins`, `visualizations`, `mcp`, `approvals`, `access`, `computer_use`, `logs`, `cache`, `backups`, `tasks`, `other`.
 - `moves` is true for `conversations`, `workspaces`, `tasks`, `bot` and `code`: those follow the data location. Every other id stays with the home.
+- `process`, `system`, `active` and `space` are read on every call and cost no disk walk; a client may poll them every few seconds. A field the operating system cannot give is `null`, never `0`.
+- `process.rss_bytes` is this process's resident memory (Linux `/proc/self/statm`, macOS one `ps` call; `null` on Windows). `cpu_percent` is this process's CPU time (user plus system, `getrusage`) over the wall time since the previous call, where 100 is one full core; `null` on the first call after start and on Windows. `num_gc` and `last_gc_at` are the Go garbage collector's count and last run (`null` before the first). `open_files` counts this process's descriptors (`/proc/self/fd` on Linux, `/dev/fd` on macOS) and `open_files_limit` is the soft `RLIMIT_NOFILE`; both `null` on Windows.
+- `system.load1`, `load5`, `load15` are the host load averages (Linux `/proc/loadavg`, macOS `vm.loadavg`); `null` on Windows.
+- `active` splits `active_runs`: `subagents` are runs of subagent conversations, `scheduled` runs started by a schedule, `conversations` every other run (including Bot and external-agent runs). The three add up to `active_runs`.
+- `space` is the object `GET /v1/storage` returns under `space` (free and total bytes of the data and home volumes, each with its `level` `ok`, `low` or `critical` by the same rule, see docs/storage.md). It is rechecked at most every 30 seconds (bounded by 2 seconds) and is `null` until a check has succeeded. Any key sees it.
 
 Errors:
 
 - `500` Core home unavailable
+
+Events: none.
+
+### GET /v1/resources/categories/{id}
+
+Auth: administrator key
+Effect: Lists the largest items of one storage category: the direct children of the category's folders under the home and, when it differs, the data root. Conversations are grouped by conversation (a transcript and its side files and folders). Uses the scan's rules (no symbolic links followed or counted, 2 seconds and 100,000 entries at most) and is cached for 30 seconds per category.
+
+Request: no body. Query: `limit` (default `10`, at most `100`).
+
+Response: `200`
+
+```json
+{
+  "id": "conversations",
+  "measured_at": "2026-10-14T12:00:00Z",
+  "partial": false,
+  "items": [
+    {
+      "name": "Check the server logs",
+      "path": "data:sessions/2026-10-14T09-00-00_ab12",
+      "bytes": 1048576,
+      "files": 4,
+      "conversation_id": "2026-10-14T09-00-00_ab12",
+      "archived": false,
+      "modified": "2026-10-14T11:00:00Z"
+    }
+  ]
+}
+```
+
+- `id` is one of the ids `GET /v1/resources` lists under `storage.categories`.
+- `items` are sorted by `bytes`, largest first (then `path`), and cut to `limit`. `path` is relative to the home (`home:`) or the data root (`data:`, only when the data root is not the home). `modified` is the newest file's modification time. `conversation_id` and `archived` are present only for conversations; `name` is the conversation's custom title when it has one, else its id.
+- `cleanup` is present for `logs`, `cache`, `browser` and `code` when the matching `POST /v1/resources/cleanup` kind (`logs`, `cache`, `old_browsers`, `package_cache`) has something to delete: `{ "kind": "old_browsers", "bytes": 627048448 }`.
+- `partial` is true when the walk stopped at its budget.
+
+Errors:
+
+- `400` `limit` is not a positive integer
+- `403` not an administrator key
+- `404` unknown category
+
+Events: none.
+
+### GET /v1/resources/cleanup
+
+Auth: administrator key
+Effect: Lists what Core can delete and rebuild without losing anything of the owner's. Conversations, workspaces, memory, skills, settings and keys are never listed; archived conversations and an old data location stay on `GET /v1/storage`.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{ "items": [ { "kind": "logs", "bytes": 4096000, "volume": "home" } ] }
+```
+
+- `kind` is one of `logs` (rotated log files in `<home>/logs`, such as `core.log.1`; the files being written are kept), `cache` (everything in `<home>/cache`), `old_browsers` (managed browser builds in `<home>/browser/runtime-*` other than the one `runtime.json` records and the one `GYRES_BROWSER_EXECUTABLE` names) and `package_cache` (the run_code package cache `<data>/code/package-cache`). Only kinds with something to delete are listed.
+- `volume` says which disk the bytes free: `home` or `data`.
+
+Errors:
+
+- `403` not an administrator key
+
+Events: none.
+
+### POST /v1/resources/cleanup
+
+Auth: administrator key
+Effect: Deletes one kind listed by `GET /v1/resources/cleanup`. Only direct children of the kind's folder are removed. The folder and every folder on the way to it must be real folders, not symbolic links; nothing is followed through a link (a link inside the folder is removed as a link).
+
+Request:
+
+```json
+{ "kind": "logs" }
+```
+
+Response: `200`
+
+```json
+{ "kind": "logs", "freed_bytes": 4096000 }
+```
+
+- `freed_bytes` is the size of the regular files removed.
+
+Errors:
+
+- `400` invalid JSON, or a kind that is unknown or has nothing to delete now (including `old_browsers` when no browser in use is recorded)
+- `403` not an administrator key
+- `409` the kind is in use: a browser install is running (`old_browsers`) or a run_code execution is running (`package_cache`); or the data directory is moving (`storage_maintenance`)
+- `503` storage maintenance or unavailable (the storage gate)
+
+Events: none.
+
+### GET /v1/resources/history
+
+Auth: administrator key
+Effect: Daily totals of Core's disk use. Core records the first complete storage scan (`GET /v1/resources`) of each local day in `<home>/storage-history.jsonl`, keeping the last 400 days recorded; days without a scan are absent.
+
+Request: no body. Query: `days` (default `30`, at most `400`): how many of the most recent recorded days to return.
+
+Response: `200`
+
+```json
+{ "days": [ { "day": "2026-10-14", "bytes": 10, "categories": { "conversations": 10 } } ] }
+```
+
+- `days` is oldest first. `bytes` and `categories` are the scan's totals (category ids as in `storage.categories`).
+
+Errors:
+
+- `400` `days` is not a positive integer
+- `403` not an administrator key
+
+Events: none.
+
+### GET /v1/processes
+
+Auth: administrator key
+Effect: Lists the processes this Core started and still owns: external agents, the managed browser, MCP servers and code runs (run_code, exec_command, hooks). Never other processes on the machine. One `ps` call samples them; there is no stop action.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "sampled_at": "2026-10-14T12:00:00Z",
+  "processes": [
+    {
+      "pid": 48213,
+      "kind": "browser",
+      "name": "agent-browser",
+      "started_at": "2026-10-14T10:00:00Z",
+      "cpu_percent": 3.4,
+      "rss_bytes": 641728512,
+      "children": 6
+    },
+    {
+      "pid": 48300,
+      "kind": "agent",
+      "name": "Codex",
+      "detail": "codex",
+      "harness": "codex",
+      "conversation_id": "2026-10-14T09-00-00_ab12",
+      "title": "Check the server logs",
+      "started_at": "2026-10-14T11:00:00Z",
+      "cpu_percent": 0.2,
+      "rss_bytes": 83886080
+    }
+  ]
+}
+```
+
+- `kind` is `agent`, `browser`, `mcp` or `code`. `name` is the agent's label, `agent-browser`, the MCP server's executable, or `run_code` / `exec_command` / `hook`; `detail` is the executable's file name. `harness` is the agent's lowercase name. Command lines are never returned.
+- `conversation_id` and `title` are present when the process was started for a conversation (`title` only when it has a custom title). `started_at` is when Core registered it. Sorted by `started_at`.
+- `cpu_percent` and `rss_bytes` include the process's descendants, counted in `children` (absent when there are none). `cpu_percent` is `ps`'s figure (macOS: recent average; Linux: average since the process started). Both are `null` on Windows.
+
+Errors:
+
+- `403` not an administrator key
 
 Events: none.
 
@@ -11370,8 +11821,10 @@ Request: no body.
 Response: `200`
 
 ```json
-{ "enabled": false, "max_turns": 100, "goal_max_continuations": 100 }
+{ "enabled": false, "max_turns": 100, "goal_max_continuations": 100, "revision": "5f1c0e9a3b7d2a4c6e8f0a1b" }
 ```
+
+- `revision` identifies the saved values; a `PUT` may send it back to be refused when they changed meanwhile.
 
 - `goal_max_continuations` caps a goal's automatic continuations ([goal](runs.md#goal)); `100` until someone saves another.
 - `enabled` is false until a cap is turned on. While it is false, new tasks are not capped, and `max_turns` is still stored.
@@ -11534,10 +11987,11 @@ Query: all optional.
 - `session` matches that conversation, including every lane of it, or one lane when the value is the conversation id, a tilde, and the lane id.
 - `model`, `provider`, `purpose`, `source` and `status` keep rows whose field is exactly that string.
 - `from` and `to` are RFC3339. `from` is inclusive and `to` is exclusive (`started` >= `from` and `started` < `to`). When both are set, `to` must be after `from`. A date with no time is rejected.
-- `origin` is `interactive`, `scheduled`, `compaction`, `memory_review` or `recap`. Omitted returns every bucket. It narrows the page, the summary, and the session, day and model groups. It does not narrow `breakdown.origins`.
-- `executor` is omitted, `gyres`, `all`, `agents`, `codex`, `grok` or `claude`. Omitted and `gyres` keep Core's own rows (a missing `executor` counts as `gyres`). `agents` keeps every external-agent row. `all` keeps every row. `codex`, `grok` and `claude` keep that agent.
+- `origin` is `interactive`, `scheduled`, `compaction`, `memory_review` or `recap`. Omitted returns every bucket. It narrows the page, the summary, and every breakdown except `breakdown.origins`.
+- `executor` is omitted, `gyres`, `all`, `agents`, `codex`, `grok` or `claude`. Omitted and `gyres` keep Core's own rows (a missing `executor` counts as `gyres`). `agents` keeps every external-agent row. `all` keeps every row. `codex`, `grok` and `claude` keep that agent. It narrows the page, the summary, and every breakdown except `breakdown.executors`.
 - `masked` is `true` (keep only rows where the privacy plugin masked at least one value) or `false`. Omitted means `false`.
-- `tz` is an integer number of minutes, from -840 to 840, the same value JavaScript's `getTimezoneOffset()` returns. It only names `breakdown.days`: that many minutes are subtracted from the UTC time (a negative value moves the clock forward) and the result is formatted `YYYY-MM-DD`. Omitted means `0`.
+- `project` is a Project id. It keeps the rows of that Project's conversations: every conversation bound to the Project's workspace (its chats and their side lanes, scheduled runs in it, Task attempts in it) and every conversation of a Task that belongs to the Project. Requests without a conversation (hooks and plugins outside a chat) are left out. It narrows the page, the summary and every breakdown. An unknown id is `404`.
+- `tz` is an integer number of minutes, from -840 to 840, the same value JavaScript's `getTimezoneOffset()` returns. It names `breakdown.days` and `breakdown.day_models` and places `breakdown.hours`: that many minutes are subtracted from the UTC time (a negative value moves the clock forward) and the result is formatted `YYYY-MM-DD` (or read as weekday and hour). One offset applies to the whole range; daylight-saving changes inside it are not modelled. Omitted means `0`.
 - `offset` is how many matching rows to skip. Omitted means `0`. Past the end, `records` is empty and `total` is still the full count.
 - `limit` is the page size. Omitted or `0` means 100. Above 200 is treated as 200. The response `limit` is the value after that rule.
 
@@ -11587,7 +12041,12 @@ Response: `200`
     "duration_ms": 2000,
     "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 },
     "cost_usd": 0,
-    "cost_known": 0
+    "cost_known": 0,
+    "failed": 0,
+    "timed_calls": 0,
+    "first_token_median_ms": null,
+    "first_token_p90_ms": null,
+    "speed_tps": null
   },
   "breakdown": {
     "sessions": [
@@ -11609,7 +12068,11 @@ Response: `200`
             "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 }
           }
         },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 1,
+        "cache_input": 140,
+        "cache_read": 40,
+        "failed": 0
       }
     ],
     "days": [
@@ -11621,7 +12084,13 @@ Response: `200`
         "unknown": 0,
         "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 },
         "last": "2026-10-14T12:00:00Z",
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 1,
+        "cache_input": 140,
+        "cache_read": 40,
+        "failed": 0,
+        "sessions": 1,
+        "top_model": "example-model"
       }
     ],
     "models": [
@@ -11633,7 +12102,15 @@ Response: `200`
         "unknown": 0,
         "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 },
         "last": "2026-10-14T12:00:00Z",
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 1,
+        "cache_input": 140,
+        "cache_read": 40,
+        "failed": 0,
+        "timed_calls": 0,
+        "first_token_median_ms": null,
+        "first_token_p90_ms": null,
+        "speed_tps": null
       }
     ],
     "origins": [
@@ -11645,7 +12122,11 @@ Response: `200`
         "unknown": 0,
         "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 },
         "last": "2026-10-14T12:00:00Z",
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 1,
+        "cache_input": 140,
+        "cache_read": 40,
+        "failed": 0
       },
       {
         "key": "scheduled",
@@ -11654,7 +12135,11 @@ Response: `200`
         "partial": 0,
         "unknown": 0,
         "tokens": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 0,
+        "cache_input": 0,
+        "cache_read": 0,
+        "failed": 0
       },
       {
         "key": "compaction",
@@ -11663,7 +12148,11 @@ Response: `200`
         "partial": 0,
         "unknown": 0,
         "tokens": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 0,
+        "cache_input": 0,
+        "cache_read": 0,
+        "failed": 0
       },
       {
         "key": "memory_review",
@@ -11672,7 +12161,11 @@ Response: `200`
         "partial": 0,
         "unknown": 0,
         "tokens": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 0,
+        "cache_input": 0,
+        "cache_read": 0,
+        "failed": 0
       },
       {
         "key": "recap",
@@ -11681,7 +12174,11 @@ Response: `200`
         "partial": 0,
         "unknown": 0,
         "tokens": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 0,
+        "cache_input": 0,
+        "cache_read": 0,
+        "failed": 0
       },
       {
         "key": "plugins",
@@ -11690,8 +12187,39 @@ Response: `200`
         "partial": 0,
         "unknown": 0,
         "tokens": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 0,
+        "cache_input": 0,
+        "cache_read": 0,
+        "failed": 0
       }
+    ],
+    "executors": [
+      {
+        "key": "gyres",
+        "requests": 1,
+        "known": 1,
+        "partial": 0,
+        "unknown": 0,
+        "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 },
+        "last": "2026-10-14T12:00:00Z",
+        "cost_usd": 0,
+        "cache_known": 1,
+        "cache_input": 140,
+        "cache_read": 40,
+        "failed": 0
+      }
+    ],
+    "day_models": [
+      {
+        "day": "2026-10-14",
+        "key": "example-model",
+        "requests": 1,
+        "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 }
+      }
+    ],
+    "hours": [
+      { "weekday": 3, "hour": 12, "requests": 1, "total_tokens": 160 }
     ]
   },
   "total": 1,
@@ -11721,7 +12249,13 @@ Response: `200`
 - `breakdown.sessions` is one object per conversation, largest token total first, then latest `last`, then `session_id`. `models` on a session is the distinct model names, sorted. `origins` on a session has only the buckets that had rows. `cost_usd` sums that session's agent estimates.
 - `breakdown.days` is sorted by `key` ascending. `key` is the `YYYY-MM-DD` from `tz`. `breakdown.models` is one object per model name (`key`), largest token total first.
 - `breakdown.origins` always has six objects, in this order, even when every count is zero and even when `origin` filtered the rest of the response: `interactive`, `scheduled`, `compaction`, `memory_review`, `recap`, `plugins`. A group has `key`, `requests`, `known`, `partial`, `unknown`, `tokens`, `cost_usd`, and `last` (omitted when the group is empty).
-- `days`, `models` and `sessions` are empty arrays when they have no rows. They are not null.
+- `summary.failed` counts rows with `status` `failed`. `summary.timed_calls` counts Core's own timed calls: a call with `first_token_at`, a `finished` after it, and `reported` usage with output tokens (the rule of `GET /v1/sessions/{id}/usage`); external-agent rows are never timed. `speed_tps` is Σ output tokens of timed calls ÷ Σ (`finished` − `first_token_at`) in seconds, to one decimal. `first_token_median_ms` is the median of (`first_token_at` − `started`) over timed calls (the mean of the two middle values for an even count); `first_token_p90_ms` is the nearest-rank 90th percentile. The three are `null` when `timed_calls` is 0, never 0.
+- Every group in `sessions`, `days`, `models`, `origins` and `executors` has `cache_known`, `cache_input` and `cache_read` with the summary's rule (hit rate is `cache_read` ÷ `cache_input` over `cache_known` rows), and `failed`. Only `models` rows add `timed_calls`, `first_token_median_ms`, `first_token_p90_ms` and `speed_tps`, with the summary's rule. Only `days` rows add `sessions` (distinct conversations that day) and `top_model` (the `models` key with the largest token total that day, ties by key; `""` when none).
+- `breakdown.executors` is one group per executor (`key` is `gyres` for Core's own rows, else the agent name), largest token total first, then `key`. It ignores `executor` and honours every other filter, `origin` included.
+- `breakdown.day_models` is one object per day and model with rows: `day` as in `days`, `key` as in `models`, `requests` and `tokens`. Sorted by `day`, then largest token total, then `key`.
+- `breakdown.hours` is one cell per weekday and hour with rows, in local time from `tz`: `weekday` 0–6 (0 is Sunday, as JavaScript's `getDay()`), `hour` 0–23, `requests`, and `total_tokens` (input + output + cache read + cache write). Sorted by `weekday`, then `hour`. Empty cells are omitted.
+- Older Cores omit every field in the three items above; clients treat them as optional.
+- `days`, `models`, `sessions`, `executors`, `day_models` and `hours` are empty arrays when they have no rows. They are not null.
 
 Errors:
 
@@ -11732,6 +12266,7 @@ Errors:
 - `400` invalid executor
 - `400` invalid time zone
 - `400` invalid masked filter
+- `404` project not found
 - `500` cannot read usage records
 
 Events: none.
@@ -11997,16 +12532,18 @@ Request:
 - `enabled` (boolean) turns the cap on or off. Turning it off keeps `max_turns`.
 - `max_turns` (integer) is the cap, from 100 through 4294967295. A fraction, a negative number, or a number above that range is rejected.
 - `goal_max_continuations` (integer, optional) is the goal continuation cap, 1 through 10000. Left out, the saved value stays.
+- `revision` (string, optional) is the value from `GET /v1/task-limits` or the previous save's response. When sent and the saved values have changed since, nothing is saved (`409`). Left out, the save is unconditional.
 - The body is at most 4096 bytes. Unknown fields are ignored. Omitting either field is rejected.
 
 Response: `200`
 
-The body is the saved object, the same shape as `GET /v1/task-limits`.
+The body is the saved object, the same shape as `GET /v1/task-limits`, with the new `revision`.
 
 Errors:
 
 - `400` `enabled 和 max_turns 必须完整提供，次数必须是至少 100 的整数` — the body is not JSON, is larger than 4096 bytes, a field is missing, or `max_turns` is not a whole number in range
 - `400` `最大循环次数必须是至少 100 的整数` — both fields were read and `max_turns` is below 100
+- `409` `配置已在其他窗口更新，请重新加载后再修改` — `revision` is not the current one
 - `500` the setting could not be saved
 
 Events: none.
@@ -13091,6 +13628,16 @@ Each entry:
 
     - What changed (endpoint, field or event).
       Migration: what a client must do.
+
+## api_version 6 (Gyres 0.128.0)
+
+- `GET /v1/provider-settings` and the `PUT` response no longer return a
+  provider's `api_key`; each provider has `has_key` instead. On `PUT`, an
+  empty or missing `api_key` keeps the stored key, and `clear_api_key: true`
+  removes it.
+  Migration: show `has_key` instead of the key; send `api_key` only when the
+  owner typed a new one; send `clear_api_key` to remove it; for
+  `POST /v1/provider-settings/fetch` of a saved provider send `provider_id`.
 
 ## api_version 5 (Gyres 0.126.0)
 

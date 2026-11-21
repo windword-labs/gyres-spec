@@ -707,6 +707,53 @@ Errors:
 
 - `404` run not found
 
+### POST /v1/bot/agenda/{id}/cancel
+
+Auth: admin
+Effect: Cancels one open item of the Bot's supervision agenda, as the owner (the same change as the Bot's `bot_agenda` cancel in a turn the owner started). The item stays in the agenda as `cancelled`; its targets are not touched.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{ "item": { "id": "ag_0123456789abcdef", "status": "cancelled" } }
+```
+
+`item` is the whole saved item, the shape of a `GET /v1/bot` `agenda` entry (shortened above).
+
+Errors:
+
+- `403` administrator key required
+- `404` agenda item not found
+- `409` the item is already `completed` or `cancelled`
+
+Events: `bot.changed`.
+
+### POST /v1/bot/agenda/{id}/check
+
+Auth: admin
+Effect: Runs an active item's follow-up now, as when its `next_check_at` falls due: its pre-check runs first when it has one, and the background supervisor is woken with a `check_due` event unless the pre-check output is unchanged. An item without a pre-check always wakes the supervisor. An owner check never counts against the item's automatic-wake limit, and an unchanged pre-check leaves `next_check_at` as it was (only an item that had one moves it on).
+
+Request: no body.
+
+Response: `200`
+
+```json
+{ "outcome": "queued", "item": { "id": "ag_0123456789abcdef", "status": "active" } }
+```
+
+- `outcome` is `queued` (the supervisor will look at the item) or `unchanged` (the pre-check found nothing new; no model request).
+
+Errors:
+
+- `403` administrator key required
+- `404` agenda item not found
+- `409` the item is not `active` (a `waiting_owner` item waits for the owner's answer in a Bot chat)
+- `500` the check could not be queued
+
+Events: `bot.changed`.
+
 ### GET /v1/bot/channels
 
 Auth: admin

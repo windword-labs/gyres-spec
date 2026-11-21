@@ -64,6 +64,8 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
 - `scheduled`, when present, is `{"job_id","name","run_id"}` for a conversation a standalone scheduled run created.
 - `origin`, when present on a list row, is only a Bot origin (below). A terminal import's origin is not on the list.
 - `unseen_kind` is omitted when `unseen` is `""`. When present it is `user`, `scheduled`, `bot_task`, `external`, `wake`, `goal`, or `recovery`.
+- `run_reason_code`, on a live list row, is the run state's `reason_code` (as `GET /v1/sessions/{id}/run-state` gives it) while `run_state` is `blocked`, `interrupted` or `paused`; omitted otherwise. `auto_resume_off` marks an interrupted task that waits for the owner instead of resuming by itself.
+- `attention`, on a live list row, is what the conversation waits on the owner for besides approvals and questions: `capped`, `budget_limited`, `usage_limited` or `blocked` (the needs-attention status of the Task the row belongs to: its goal, its loop, or a standalone or Bot Task whose latest attempt ran there; archived Tasks never count), or `quota` (the last run failed at the provider's balance or rate limit and is still unseen; cleared with `unseen`). When several apply: `quota`, `usage_limited`, `budget_limited`, `capped`, `blocked`. `attention_reason` is the Task's reason in plain text (at most 200 characters), omitted when there is none and for `quota`. Both are omitted when nothing applies; older Cores omit them. Core publishes `sessions.changed` for the row when a Task's attention changes without a run ending.
 
 `archived=true` (exactly that string; `1`, `True`, and a missing parameter are the live list) returns archived rows, newest `archived_at` first. Bot conversations and hidden workers' conversations are omitted. Side lanes are not rows.
 
@@ -79,6 +81,7 @@ A list row can have `running: true` and `run_state: "paused"`. A leftover receip
   - `pinned_order`: `0` for the main chat, then `1`, `2`, … for the channel chats in kind order;
   - `project_id`: the workspace binding's Project;
   - `parent_session`: the conversation it was opened from;
+  - `parent_run_id`, `parent_call_id`: for a subagent or external-agent child, the parent's run (`run_id` of `GET /v1/sessions/{id}/runs`) and the tool call that dispatched it; a follow-up dispatch moves them to that later run and call. `parent_call_id` is `""` for a child dispatched before Gyres recorded it whose parent's receipt no longer holds the link;
   - `lane`: `true` for a side chat; its `project_id` is its base's;
   - `ended`, `channel`: for a pinned chat `/new` set aside, when that happened and the channel kind it served (none for the main chat or a Coordinator).
 - `title` falls back to the title the Bot state keeps for a Bot chat with no title of its own (a Coordinator's: its Project's name).
@@ -142,7 +145,7 @@ Without `all` or `parent` the list is unchanged, and so is `GET /v1/bot`'s `chat
 
 `from_message_id` is the message the lane branched from, or `""` when it branched at the start or that id cannot be read. `shared_count` is how many leading records have `shared: true`.
 
-`parent_session` is included when task records are kept: the parent conversation id, or `""` when there is none. It is omitted when task records are not kept.
+`parent_session` is included when task records are kept: the parent conversation id, or `""` when there is none. It is omitted when task records are not kept. A subagent or external-agent child also has `parent_run_id` and `parent_call_id`, as in the conversation list above.
 
 `executor` is `gyres` unless an external agent owns the conversation, then `codex`, `grok`, `pi`, `claude`, or `cursor`. If more than one binding is present, the last one applied wins, in that order, so Cursor wins over Claude, pi, Grok, then Codex. `executor_model` is that binding's model. `executor_options` for Codex is `{"reasoning_effort","service_tier"}`, either of which may be `""`. For Grok, pi, Claude and Cursor it is `{"reasoning_effort"}` only (always `""` for Cursor).
 
@@ -875,7 +878,7 @@ Response: `200`
   "session_id": "2026-10-17T10-00-00_…",
   "totals": {
     "input_tokens": 41000, "output_tokens": 6900, "cache_read_tokens": 32000, "cache_write_tokens": 0,
-    "cost_usd": null, "calls": 19, "timed_calls": 17, "speed_tps": 66.1, "first_token_median_ms": 1100
+    "cost_usd": null, "calls": 19, "timed_calls": 17, "speed_tps": 66.1, "first_token_median_ms": 1100, "first_token_p90_ms": 2600
   },
   "models": [
     {"provider_id": "volc", "model": "glm-5", "purpose": "chat", "fallback": false, "calls": 14, "timed_calls": 13, "output_tokens": 5600, "speed_tps": 81.3, "first_token_median_ms": 1100},
@@ -891,14 +894,14 @@ An external-agent conversation (Codex, Grok, Claude):
 ```json
 {
   "session_id": "…",
-  "totals": {"input_tokens": 52000, "output_tokens": 6900, "cache_read_tokens": 40000, "cache_write_tokens": 0, "cost_usd": 0.09, "calls": 0, "timed_calls": 0, "speed_tps": null, "first_token_median_ms": null},
+  "totals": {"input_tokens": 52000, "output_tokens": 6900, "cache_read_tokens": 40000, "cache_write_tokens": 0, "cost_usd": 0.09, "calls": 0, "timed_calls": 0, "speed_tps": null, "first_token_median_ms": null, "first_token_p90_ms": null},
   "models": [],
   "agent": {"executor": "claude", "turns": 7, "timed_turns": 7, "output_tokens": 6900, "speed_tps": 22.4, "speed_basis": "api_duration"}
 }
 ```
 
-- A model call is **timed** when it has a first-token time, finished after it, and its usage was reported with output tokens. `speed_tps` is Σ output tokens of timed calls ÷ Σ (stream end − first token) of those calls in seconds, to one decimal; never an average of per-call speeds. `first_token_median_ms` is the median of (first token − request sent) over timed calls. Both are `null` when `timed_calls` is 0, never 0. Untimed calls count in `calls` only.
-- `totals` token counts and `cost_usd` cover every row, external-agent turns included. `calls`, `timed_calls`, `speed_tps` and `first_token_median_ms` cover Core's own model calls only. `cost_usd` is `null` when no row carried a cost (Core does not price its own requests; external agents report their own estimate).
+- A model call is **timed** when it has a first-token time, finished after it, and its usage was reported with output tokens. `speed_tps` is Σ output tokens of timed calls ÷ Σ (stream end − first token) of those calls in seconds, to one decimal; never an average of per-call speeds. `first_token_median_ms` is the median of (first token − request sent) over timed calls; `totals.first_token_p90_ms` its nearest-rank 90th percentile (the smallest value with at least 90% of timed calls at or below it), as in `GET /v1/usage`'s summary. They are `null` when `timed_calls` is 0, never 0. Untimed calls count in `calls` only.
+- `totals` token counts and `cost_usd` cover every row, external-agent turns included. `calls`, `timed_calls`, `speed_tps`, `first_token_median_ms` and `first_token_p90_ms` cover Core's own model calls only. `cost_usd` is `null` when no row carried a cost (Core does not price its own requests; external agents report their own estimate).
 - `models` has one row per provider, model, purpose and `fallback` (true when a model of the fallback chain served the call in place of the conversation's model). `purpose` is `chat` for the conversation's own turns; anything else (`compaction`, `memory_review`, a plugin's purpose) is background work on the conversation's behalf. `chat` rows come first, then by `output_tokens` descending. External-agent turns are not listed here.
 - `agent` is `null` unless the conversation is bound to an external agent or has turns from one; a bound conversation before its first turn has zero counts. External agents only report per-turn durations, so a turn counts toward `speed_tps` (`timed_turns`) when its usage was reported and it has a duration. `speed_basis` is `api_duration` when every such turn carried the agent's own time in model requests (Claude), else `turn_wall_clock`, the turn's wall-clock time including tools. `speed_tps` is `null` when no turn counts.
 
@@ -909,6 +912,69 @@ Errors:
 - `500` a binding cannot be read
 
 Events: none. Refetch after a run's `usage` frames or `session.agent_usage`.
+
+### GET /v1/sessions/{id}/runs
+
+A conversation's recent runs with an ordered timeline each, for the Run analysis page. One request covers a page of runs; nothing else needs fetching per run. A side chat's handle lists only that lane's runs; a child conversation's runs are in the child conversation.
+
+Query: `limit` (1–20, default 10), `before` (a `run_id` from a previous page: older runs only).
+
+```json
+{
+  "session_id": "…",
+  "runs": [{
+    "run_id": "task_…", "executor": "agent", "source": "user",
+    "started_at": "2026-11-21T10:00:00Z", "finished_at": "2026-11-21T10:01:12Z",
+    "outcome": "completed", "stop_reason": "", "code": "", "duration_ms": 72000,
+    "resumed": [{"at": "2026-11-21T10:00:40Z", "cause": "restart"}],
+    "truncated": false,
+    "spans": [
+      {"kind": "model", "start": "…", "end": "…", "step": 1, "usage_id": "…", "request_id": "task_….s1", "attempt": 1, "provider_id": "volc", "model": "glm-5", "purpose": "chat", "first_token_at": "…", "usage_state": "reported", "output_tokens": 412, "status": "completed"},
+      {"kind": "approval", "start": "…", "end": "…", "step": 1, "call_id": "call_1", "name": "exec_command", "approval_id": "…", "status": "approved"},
+      {"kind": "tool", "start": "…", "end": "…", "step": 1, "attempt": 1, "call_id": "call_1", "name": "exec_command", "title": "go test ./internal/usage", "status": "ok"},
+      {"kind": "child", "start": "…", "end": "…", "step": 2, "call_id": "call_2", "name": "helper", "child_session_id": "…", "child_task_id": "…", "status": "completed"}
+    ]
+  }],
+  "next_before": "task_…"
+}
+```
+
+- `runs` are newest first. `next_before` is the `before` of the next page, `null` on the last.
+- `outcome` is `completed`, `failed`, `aborted`, `declined`, or `running` while the run has no finish record (also a run Core stopped in, until the next run closes it). `executor` is `agent` for Core's own loop, else the external agent's name. `resumed` lists continuations after a restart, a manual Continue or a parent's resume.
+- `spans` are sorted by `start`. `end` is `null` while open; once the run has finished every span has an `end` (a span still open then ends at `finished_at`), so a finished run's timeline does not change over time. `step` is the run's step (1-based) where known. Kinds:
+  - `model`: one model request attempt, from the usage records: retries and fallbacks of a step share `request_id` and `step`, with `attempt` and `fallback_from`; `failed_request` names the raw entry of a failed attempt ([below](#get-v1sessionsidfailed-requestsentry)); `output_tokens` is absent when no usage arrived. `status` is the usage status.
+  - `compaction`, `background` (other purposes, such as plugin requests; `purpose` names it) and `memory_review` (placed on the newest run that started before it; reviews are not tied to a run): model requests of the same shape.
+  - `agent_turn`: one external-agent turn (its usage record).
+  - `tool`: one tool admission: `start` when it began to run (after any approval), `end` when its result was stored. `status` is `ok`, `error`, `running`, or `interrupted` (an attempt Core stopped in, or the run ended without its result). `title` is a short label from its first argument among path, pattern, query, command, URL or name: one line, at most 80 characters, secret-like values `[redacted]`. Arguments and outputs are never included.
+  - `approval`: a wait for a decision: `start` when it was asked, `end` when decided; `status` is the approval's (`approved`, `rejected`, `denied`, `expired`, `cancelled`, `pending`); `resolver` names a decider other than a person.
+  - `child`: a subagent or external-agent child dispatched by `call_id` in `step`, from its dispatch to the end of the child's own run (read from the child conversation; a child the parent did not wait for may end after the parent's run). `status` is `completed`, `failed` or `interrupted` (its run was stopped, or no end of it was recorded and the parent's run ended), or the outcome its delivery recorded; `running` while the child's run is open, which after the parent's run ended keeps `end` at `finished_at`.
+- A run has at most 400 spans; `truncated` is `true` when more were left out.
+- Older runs: requests recorded before Gyres kept call timing have no `first_token_at` or `step`. Runs converted from receipts written before the operation log have no tool or child spans. External-agent runs have their turns only, not the agent's own tool calls. A compaction a hook supplied sent no request and has no span.
+
+Errors: `400` invalid `limit`, `404` session not found or `before` is not one of its runs, `500` a record file cannot be read.
+
+Events: none. Refetch after the run's `result` or `session.*` events.
+
+### GET /v1/sessions/{id}/failed-requests/{entry}
+
+Administrators only. One kept raw failed model request of the conversation: `entry` is a usage record's `failed_request` (`GET /v1/usage` rows). Core keeps the newest 20 per conversation (16 MiB at most), so an older entry may be gone. A side chat's handle reads only its own lane's entries.
+
+```json
+{
+  "version": 1, "id": "…", "at": "2026-11-21T10:00:05Z",
+  "session_id": "…", "run_id": "…", "request_id": "….s3", "step": 3, "attempt": 2, "usage_id": "…",
+  "purpose": "chat", "provider": "volc", "format": "chat_completions", "endpoint": "https://example.com/v1/chat/completions", "model": "glm-5",
+  "request": {"model": "glm-5", "messages": []}, "request_bytes": 48210,
+  "status": 429, "headers": {"retry-after": "3"}, "response_body": "{\"error\":…}", "error": "429 Too Many Requests"
+}
+```
+
+- `request` is the body as sent when it was valid JSON within 4 MiB; otherwise `request_text` holds its first bytes and `request_truncated` is `true`. `response_body` keeps at most 64 KiB.
+- Never present: request headers (authorization), response headers that may carry credentials or session state, endpoint user info and credential-like query values. Values matching the secret rules of [privacy masking](../../docs/privacy-masking.md) anywhere in the request, response body, error or headers read `[redacted]`. Other conversation content is returned as it was sent.
+
+Errors: `403` not an administrator, `404` session or entry not found, `500` the file cannot be read.
+
+Events: none.
 
 ### GET /v1/sessions/{id}/workspace
 

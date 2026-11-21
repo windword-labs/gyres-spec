@@ -16,6 +16,16 @@ Each entry:
     - What changed (endpoint, field or event).
       Migration: what a client must do.
 
+## api_version 6 (Gyres 0.128.0)
+
+- `GET /v1/provider-settings` and the `PUT` response no longer return a
+  provider's `api_key`; each provider has `has_key` instead. On `PUT`, an
+  empty or missing `api_key` keeps the stored key, and `clear_api_key: true`
+  removes it.
+  Migration: show `has_key` instead of the key; send `api_key` only when the
+  owner typed a new one; send `clear_api_key` to remove it; for
+  `POST /v1/provider-settings/fetch` of a saved provider send `provider_id`.
+
 ## api_version 5 (Gyres 0.126.0)
 
 - `GET /v1/external-summary` is gone. It summarised this Core's live

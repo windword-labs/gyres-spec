@@ -255,7 +255,7 @@ Events: none.
 ### GET /v1/provider-settings
 
 Auth: admin
-Effect: Returns the provider list, which provider is selected, and the revision a later save must send back. API keys are included. Send the whole document back on `PUT /v1/provider-settings`; fields left out are deleted.
+Effect: Returns the provider list, which provider is selected, and the revision a later save must send back. API keys are never returned: `has_key` says whether one is stored. Send the whole document back on `PUT /v1/provider-settings`; fields left out are deleted, except a stored key, which stays unless the save replaces or clears it.
 
 Request: no body.
 
@@ -272,7 +272,7 @@ Response: `200`
       "api_format": "chat_completions",
       "enabled": true,
       "base_url": "https://192.0.2.20/v1",
-      "api_key": "example-key",
+      "has_key": true,
       "available": ["demo-model", "demo-small"],
       "active": ["demo-model"],
       "model_names": { "demo-model": "Demo" },
@@ -293,7 +293,7 @@ Response: `200`
 - `id` is unique and must not be `local-codex`. `name` is the label. `catalog_id`, when set, picks a known limit table. `custom` is present only when it is true, for a provider the owner added by URL.
 - `protocol` is what `POST /v1/provider-settings/fetch` calls. `api_format` is `chat_completions` or `responses`, and is omitted when unset. Unset means chat completions.
 - `enabled` with an empty `base_url` is refused on save. `base_url` is an `http` or `https` URL with a host and with no user name, password, query or fragment.
-- `api_key` is the credential. It is returned in full. `available` is the last fetched id list. `active` is the models chat may use, in order; the first entry is that provider's contribution to the Settings default. Either list is JSON `null` when missing. Empty maps are omitted.
+- `api_key` is never in a response. `has_key` is true when a key is stored for the provider. `available` is the last fetched id list. `active` is the models chat may use, in order; the first entry is that provider's contribution to the Settings default. Either list is JSON `null` when missing. Empty maps are omitted.
 - `model_names` maps a model id to a display name. `model_images` maps a model id to whether the owner allows images. `image_transport` is `inline` or `files`, and is omitted when unset. `files` is allowed only with `api_format` `responses`.
 - `model_limits` maps a model id to `{context_window, max_output}`. A saved limit must have `context_window` from 4096 to 10000000 and `max_output` from 0 to 10000000. `detected_model_limits` and `detected_models` are what the last fetch reported. `detected_models` values use `name`, `vendor`, `image_input`, `reasoning` and `reasoning_levels`, each omitted when the fetch did not say.
 - `revision` is 64 hexadecimal characters. It changes when the providers change, and when the connection copied from the selected provider changes. `PUT` must send the value from this response.
@@ -497,7 +497,7 @@ Request:
 }
 ```
 
-- All four fields may be empty. A known `provider_id` fills each empty field from the saved provider. An unknown `provider_id` with an empty `base_url` is refused. A `base_url` on the request is used as sent.
+- All four fields may be empty. A known `provider_id` fills each empty field from the saved provider. Without `provider_id`, an empty `api_key` uses the key of a saved provider whose `base_url` (and `protocol`, when sent) is exactly the one sent, so a client that never sees keys can fetch for a saved provider. An unknown `provider_id` with an empty `base_url` is refused. A `base_url` on the request is used as sent.
 - `protocol` defaults to `openai`. `anthropic`, `google`, `custom` and `ollama` are recognised. Any other value is called as an OpenAI-compatible list. `custom` tries `{base}/models`, then `{base}/v1/models` when the base path does not already end in a version segment such as `v1`. `ollama` sends no key. The call gives up after 20 seconds.
 - Unknown fields are ignored.
 
@@ -709,7 +709,13 @@ Effect: Replaces the provider list and the selected provider, when `revision` is
 
 Request:
 
-The body is the `GET /v1/provider-settings` object. Send every provider you want to keep, including `api_key` and the detected maps. A field you omit on a provider is stored empty.
+The body is the `GET /v1/provider-settings` object. Send every provider you want to keep, including the detected maps. A field you omit on a provider is stored empty, except the key:
+
+- `api_key` non-empty sets the provider's key. Empty or omitted keeps the key stored for that `id` (none for a new id).
+- `clear_api_key: true` removes the stored key.
+- `has_key`, as `GET` returns it, is accepted and ignored.
+
+To save one switch at once while other edits are unsaved, send the last saved document (from `GET` or the previous save's response) with only that change, and its `revision`; then rebase the unsaved edits on the response, which carries the new `revision`.
 
 - `revision` must be the current value. An empty or stale revision saves nothing.
 - Provider `id` values are non-empty and unique, and none is `local-codex`. `selected_id` is empty or one of those ids.
@@ -720,7 +726,7 @@ The body is the `GET /v1/provider-settings` object. Send every provider you want
 
 Response: `200`
 
-The body is the saved provider document, the same shape as `GET /v1/provider-settings`, with the new `revision`.
+The body is the saved provider document, the same shape as `GET /v1/provider-settings` (no keys), with the new `revision`.
 
 Errors:
 

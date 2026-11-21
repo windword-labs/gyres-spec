@@ -401,9 +401,10 @@ Response: `200` `{"tasks": [ … ]}`, each task as in [`GET …/task`](#get-v1se
 - `reason`: why a standalone task is `capped`, `paused` or `cancelled` (for example `reached its budget of 3 attempt(s)`). `capped_until`: when a standalone task capped by its `daily_tokens` takes attempts again (the next local midnight).
 - `tokens_today` (always present): the tokens of the task's attempts started since local midnight, what `daily_tokens` measures. `next_wake`: the task's next wake, when it has one: its lane's goal or loop wake, else the next run of an active plan that advances it.
 - `project_name`: the Project's name (absent for global work or a Project that no longer exists). `initiator_name`: the initiator's readable name, the access key's name or, for `schedule:<plan id>`, the plan's. `plans`: the plans whose `task_id` is this task, `{id, name, state}` (standalone tasks).
+- `approval` (Core 0.128+): while `notice` is `approval:…` and an approval still waits in the latest attempt's conversation, the oldest one as the approvals list shows it: `{id, tool, summary, count}`, `tool` being the tool's label (else its name), `summary` the request's resource on one line, at most 160 characters (for a resource that is a tool's JSON input, its `command`, `cmd`, `path` or `url`), and `count` how many wait there.
 - A standalone task's attempt also has `source` (what started it: `schedule:<plan id>`, `owner` for a plan's "run now" or the board's advance, `bot_task`) and, for a scheduled attempt, `report` (`notify`, `quiet` or `complete`, what the run reported). Attempts recorded before Core 0.114 have neither.
 
-A plugin page may read these through its hook token: see [Tasks for plugin pages](#tasks-for-plugin-pages). A Bot task's `bot.result` is left out there, and the answer adds `projects`: the registered Projects, `[{id, name}]` (a page cannot read `GET /v1/projects`).
+A plugin page may read these through its hook token: see [Tasks for plugin pages](#tasks-for-plugin-pages). A Bot task's `bot.result` is left out there, and the answer adds `projects`: the registered Projects, `[{id, name}]` (a page cannot read `GET /v1/projects`), and (Core 0.128+) `options`, the Tasks board's new-task choices without secrets: `models` (`[{provider_id, provider_name, model, name}]`, the enabled providers' activated models), `default_model` and `executors` (`[{executor, label}]`, the external agents that are enabled with unattended use on).
 
 Errors: `403` a hook token outside that grant; `503` tasks are not available; `500` the tasks could not be read.
 
@@ -434,6 +435,8 @@ Request:
   "cwd": "",
   "provider_id": "",
   "model": "",
+  "executor": "",
+  "wake": {"kind": "interval", "seconds": 86400},
   "budget": {"max_attempts": 10}
 }
 ```
@@ -442,15 +445,17 @@ Request:
 - `title` (optional, at most 200 characters): defaults to the objective's first line, cut to 80 characters.
 - `project_id` (project id or name) and `cwd` (absolute directory on the Core host) bind the attempts' conversations; both empty uses a scratch directory.
 - `provider_id`/`model` as for schedules; an external agent (`local-claude`, …) needs `project_id` or `cwd` and its unattended use on. Empty uses the plan's model (a schedule) or the Bot's task model (`bot_task send`).
+- `executor` (optional, Core 0.128+): `gyres` (or empty) for Core's own loop, else an external agent by its executor name (`claude`, `grok`, …), which sets `provider_id` to that agent's; a different `provider_id` is `400`.
+- `wake` (optional, Core 0.128+): a cadence, the `timing` of [a schedule](schedules.md) (`interval`, `daily` or `weekly`). Core creates the plan that advances the task in the same request (standalone mode, `task_id` this task, named after its title, on the task's model); the timing is checked first, and the task is removed again when the plan still cannot be saved, so a refused `wake` creates nothing.
 - `budget` (each 0 = none): `max_attempts` (0 to 100000): after that many attempts the task becomes `capped`; `max_days` (0 to 365): `capped` once that many days have passed since it was created; `daily_tokens`: `capped` until the next local midnight once its attempts started today used that many tokens (`max_days` and `daily_tokens` Core 0.114+, from Phase 4). `max_iterations` is a loop's and is refused.
 
-Response: `200` the task: `id` (`tk_` plus 16 hex characters), `status` `waiting`, `attempts` `[]`, `initiator` the access key id.
+Response: `200` the task as in `GET /v1/tasks/{id}`: `id` (`tk_` plus 16 hex characters), `status` `waiting`, `attempts` `[]`, `initiator` the access key id, and with `wake` its plan in `plans` and `next_wake`.
 
 Statuses of a standalone task: `waiting` (between attempts), `active` (an attempt runs), `complete` (a scheduled attempt reported `complete` and `has_completion` is true; without a criterion the report only completes the plan), `capped` (a budget reached), `paused` and `cancelled` (the owner's [controls](#post-v1tasksidaction)). An attempt is `{session, lane, run, started, ended, outcome, tokens}` as for loops; one attempt runs at a time.
 
 When a task becomes `blocked`, `capped` or `usage_limited`, or one of its attempts waits on an approval, Core posts one notice into the Bot main chat and forwards it to the chat channel the owner wrote from most recently (none configured: the main chat only). A `failed` task gets no notice.
 
-Errors: `400` invalid body, missing objective, unknown project, invalid `cwd`, invalid budget, unavailable model or agent; `503` tasks are not available.
+Errors: `400` invalid body, missing objective, unknown project, invalid `cwd` (with `project_id`, a `cwd` outside the Project's directories, Core 0.128+), invalid budget, unavailable model or agent, unknown `executor`, invalid `wake` (the message starts `wake:`); `503` tasks are not available.
 
 Events: none.
 

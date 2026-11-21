@@ -14,6 +14,8 @@ An error from these handlers is `application/json`:
 
 Settings and status require an administrator key. Their responses, including errors, send `Cache-Control: no-store`. `PUT` replaces the whole settings object: a missing boolean is saved as false, a missing string as empty, and then the rules below run. The body is at most 8192 bytes. A body that is not JSON, has an unknown field, or is larger than that is rejected.
 
+Settings responses (`GET` and `PUT`) carry `revision`, which identifies the saved settings. A `PUT` may send it back: when the saved settings changed since, nothing is saved and the answer is `409`. Without `revision` the `PUT` saves as before. To save one switch at once, send the last saved object with that change and its `revision`.
+
 - `enabled`: the agent can run only when true.
 - `executable`: empty, or the bare command name (`codex`, `grok`, `pi`, `claude`, `cursor-agent` or `dsh`), means automatic, and is saved as `""`. Core then uses the newest install it finds. Any other value must be an absolute path.
 - `approval_scope`: `agent` (one approval covers every operation of that agent) or `operation` (each operation type is remembered separately). Anything else, including empty, is saved as `agent`.
@@ -41,6 +43,39 @@ An account object:
 - `credits`: omitted when the account has none. `balance` is the agent's own credit unit, not a currency, and is omitted when it is not a number. `has_credits` and `unlimited` are booleans.
 - `unavailable_reason`: `not_signed_in`, `api_key` or `not_supported`. Omitted when `kind` is `chatgpt` and nothing is wrong. This is why `windows` is empty.
 - `updated_at`: UTC time of the last successful read, omitted when there is none.
+
+### GET /v1/agents/status
+
+Auth: admin
+Effect: Every external agent's cheap status in one request, meaningful while an agent is off. Core reads each agent's settings, looks for the program on the host (file system, cached `--version` results, and a first `--version` probe of a new or updated install, at most 15 s, in parallel for all agents) and takes the sign-in state from the last finished detection. It never starts a detection, an agent session or a network call; `POST /v1/<agent>/status` does that.
+
+Request: no body.
+
+Response: `200`, agents in listing order (`codex`, `grok`, `pi`, `claude`, `cursor`, `dsh`).
+
+```json
+{
+  "agents": [
+    {
+      "id": "codex",
+      "label": "Codex",
+      "enabled": false,
+      "installed": true,
+      "path": "/opt/homebrew/bin/codex",
+      "version": "0.163.0",
+      "signed_in": true,
+      "checked_at": "2026-11-20T08:00:00Z",
+      "checking": false
+    },
+    {"id": "grok", "label": "Grok", "enabled": false, "installed": false, "signed_in": null, "checked_at": null, "checking": false}
+  ]
+}
+```
+
+- `installed`, `path`, `version`: the install the saved settings resolve to now. `path` and `version` are omitted when nothing is found; `version` falls back to the last detection's when the probe gave none.
+- `signed_in`: the last finished detection's `installed` and `logged_in`, `null` when there has been none (an agent that was never enabled or checked). For pi and dsh it means at least one usable model. Never an account name, token or key.
+- `checked_at`: when that detection finished (UTC), or `null`. `checking`: a detection is running.
+- `error`: the last detection's error, omitted when none.
 
 ### GET /v1/codex/settings
 

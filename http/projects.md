@@ -99,7 +99,7 @@ Response: `200`
       "status": {
         "available": true,
         "directories": [
-          { "path": "/work/demo", "available": true },
+          { "path": "/work/demo", "available": true, "git": { "branch": "main", "dirty": 3, "ahead": 2, "behind": 0 } },
           { "path": "/work/notes", "available": true }
         ]
       }
@@ -108,6 +108,8 @@ Response: `200`
   "host_os": "darwin"
 }
 ```
+
+- Each available folder in `status.directories` (not the library) has `git` when it is inside a git work tree: `branch` (`""` on a detached HEAD), `dirty` (changed and untracked paths, `0` when clean), `ahead` and `behind` (commits against the branch's upstream as last fetched; `0` without an upstream). Core reads it with one local `git status`, never fetches, waits at most 2 seconds per folder and reuses an answer for 10 seconds, so `ahead`/`behind` lag until something fetches. `git` is absent when the folder is not in a repository, git is not installed, or git did not answer in time. Only this route fills it.
 
 - `projects` is the saved projects in the order they were saved, each with `status`. An empty Core returns `[]`.
 - Each project may also carry its Bot fields, each present only when set: `coordinator_session_id` (the project's current Coordinator chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the owner hid the project from the main project list; a client shows it in a folded hidden group with its conversations; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on; absent: the Bot model).
@@ -751,9 +753,10 @@ Query: `session_id`, `project_id`, `cwd`, `manage_scope`, `q`. When more than on
 - `session_id` (string) is a conversation id. The list is that conversation's catalog, as above. A conversation with no workspace lists global skills (plus plugin and built-in skills under the rules above). A scratch conversation does not list project skills. The conversation's own directory is not scanned.
 - `project_id` (string) is a project id. The list is a live reading for that project's directories. The library directory is scanned only when the project has no folders; otherwise skills are read from the project's own directories, skipping an additional directory that is missing.
 - `cwd` (string) is an absolute directory on the machine running Core, used as one project directory with no library. Global skills are included. Skills that require a library are not.
-- With none of those three, the list is the global skills, plus plugin and built-in skills, and skills that require a library are left out. `manage_scope=all` together with none of those three is the management list: a fresh reading of every available project's primary directory, plus global, plugin, and built-in skills, including skills that require a library. A project whose primary directory is unavailable is skipped.
+- With none of those three, the list is the global skills, plus plugin and built-in skills, and skills that require a library are left out. `manage_scope=all` together with none of those three is the management list: a fresh reading of every available project's primary directory, plus global, plugin, and built-in skills, including skills that require a library and skills a same-named skill of higher precedence (project, then global, then plugin, then built-in) hides from a conversation's catalog. A project whose primary directory is unavailable is skipped.
 - `manage_scope` (string) filters the list when it is set. `all` keeps every source. `global` keeps `source` `global`. `builtin` keeps `source` `builtin`. `project` keeps a source that is not `global`, not `builtin`, and does not start with `plugin:`. Any other value leaves `skills` empty. `warnings` is unchanged.
 - `q` (string) is a case-insensitive substring of `name` or `description`. It applies only when `manage_scope` is set. An empty `q` does not narrow the list.
+- When `manage_scope` is set, each skill also carries `requires` (the conditions from its frontmatter, such as `["library"]`; omitted when none), `versions` (how many versions its history keeps; omitted when none or for plugin and built-in skills) and `learned` (only for a global or project bundle the Agent created: `created_by` `chat` or `review`, `session_id` of the conversation it was created in when recorded, and `reviewed`). `reviewed` is `true` once the owner marked it with `POST /v1/skills/review`, or when it was created more than 14 days ago. The response also carries `warning_details`: the `warnings` as `{path, reason}` objects (`path` is the file or directory, or `builtin <name>`).
 
 Request: no body.
 
@@ -774,6 +777,26 @@ Response: `200`
 }
 ```
 
+With `manage_scope`:
+
+```json
+{
+  "skills": [
+    {
+      "name": "release-notes",
+      "description": "Write release notes",
+      "path": "/home/me/.gyres/skills/release-notes/SKILL.md",
+      "source": "global",
+      "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "versions": 2,
+      "learned": { "created_by": "chat", "session_id": "s_123", "reviewed": false }
+    }
+  ],
+  "warnings": ["/home/me/.gyres/skills/broken/SKILL.md: missing YAML frontmatter"],
+  "warning_details": [{ "path": "/home/me/.gyres/skills/broken/SKILL.md", "reason": "missing YAML frontmatter" }]
+}
+```
+
 Errors:
 
 - `400` invalid project cwd "<path>": workspace unavailable; restore the directory or choose another location
@@ -791,9 +814,10 @@ Effect: Downloads a URL and lists the skill bundles it holds, without installing
 Request:
 
 ```json
-{ "url": "https://github.com/example/skills" }
+{ "url": "https://github.com/example/skills", "project_id": "3f2a1c0e-6b7d-4e18-9c0a-1b2d3e4f5a6b" }
 ```
 
+- `project_id` (string) is optional: a registered, available project whose install directory `targets.project` should name.
 - `url` (string) is required, at most 2048 characters, `http` or `https`, with a host and no user info. `localhost`, names ending in `.localhost` or `.local`, and loopback, private, link-local, multicast, unspecified and RFC 6598 (`100.64.0.0/10`) addresses are refused, also after DNS lookup and on every redirect.
 - The body is JSON of at most 4096 bytes. Unknown fields are ignored.
 - Limits: one download at most 50 MB, an archive walked for at most 512 MB decompressed, a bundle at most 20 MB and 500 files, `SKILL.md` at most 256 KiB. The download times out after 2 minutes.
@@ -819,9 +843,12 @@ Response: `200`
       "skipped": [".DS_Store"]
     }
   ],
-  "warnings": ["skills/broken/SKILL.md: invalid name or description"]
+  "warnings": ["skills/broken/SKILL.md: invalid name or description"],
+  "targets": { "global": "/Users/me/.gyres/skills", "project": "/work/demo/.agents/skills" }
 }
 ```
+
+- `targets` are the absolute directories `POST /v1/skills/install` writes to on the machine running Core: `global` for scope `global`, `project` for scope `project` in the given `project_id` (the library's `.agents/skills` for a project without folders). `project` is `null` without `project_id`; either is `null` when that scope is unavailable.
 
 - `kind` is `skill` (the URL was one `SKILL.md`; its bundle `path` is `.`), `github`, `archive`, or `page` (an ordinary web page or another document: `bundles` is empty and a warning says so; this is not an error).
 - `bundles` are sorted by `path`, the directory inside the source (`.` for its root). `files` are sorted, relative to the bundle; `exec` marks an executable file. `skipped` lists entries left out: hidden files, links and devices. A bundle over the limits, or whose files differ only by ASCII letter case, has `error` and no `digest`, `files` or `size`, and cannot be installed.
@@ -832,7 +859,9 @@ Errors:
 
 - `400` `invalid URL request`
 - `400` the URL was refused or could not be fetched: `URL is required and must be at most 2048 characters`, `URL must be an http or https address`, `local and private network URLs are not allowed`, `could not fetch <url>: ...`, `<url> returned HTTP <status>`, `download exceeds 50 MB`, `<url> is not a zip or tar.gz archive`, an archive that is invalid, expands past 512 MB or has a member with an absolute path, `..` or a backslash
+- `400` project directories are unavailable (with `project_id`)
 - `403` the key is not an administrator's
+- `404` project not found (with `project_id`)
 
 Events: none.
 
@@ -933,6 +962,79 @@ Errors:
 - `404` Skill is not removable
 - `409` Skill changed; refresh the list and try again (this is also the result when `expected_digest` is empty)
 - `500` the file could not be removed
+
+Events: none.
+
+### POST /v1/skills/review
+
+Auth: admin
+Effect: Marks a skill the Agent learned as looked at by the owner. Only the bundle's hidden `.gyres.json` marker changes: no history version is recorded and the catalog text is unchanged. The response sends `Cache-Control: no-store`.
+
+Request:
+
+```json
+{
+  "path": "/home/me/.gyres/skills/release-notes/SKILL.md",
+  "expected_digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}
+```
+
+- The body is one JSON object of at most 8192 bytes and may contain only these fields.
+- `path` (string) is required, as in `POST /v1/skills/uninstall`: a global or project skill of the management list.
+- `expected_digest` (string) must equal that skill's current `digest`.
+
+Response: `200`
+
+```json
+{
+  "path": "/home/me/.gyres/skills/release-notes/SKILL.md",
+  "learned": { "created_by": "chat", "session_id": "s_123", "reviewed": true }
+}
+```
+
+Errors:
+
+- `400` path and expected_digest are required
+- `403` the key is not an administrator's
+- `404` Skill not found (not listed, or a plugin or built-in skill)
+- `409` Skill changed; refresh the list and try again (also when `expected_digest` is empty)
+- `409` this skill was not learned by the Agent
+
+Events: none.
+
+### GET /v1/skills/bundle
+
+Auth: admin
+Effect: Reads one skill of the management list for display: the files of its bundle and the text of its `SKILL.md`. Nothing is recorded. Hidden files and folders and symbolic links are left out of the file list. The response sends `Cache-Control: no-store`.
+
+Query:
+
+- `path` (string, required) is a skill's `path` from the management list of `GET /v1/skills` (or an absolute path resolving to it). Any other path is refused.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "path": "/home/me/.gyres/skills/release-notes/SKILL.md",
+  "files": [
+    { "path": "SKILL.md", "size": 1432 },
+    { "path": "scripts/check.sh", "size": 210 }
+  ],
+  "truncated": false,
+  "content": "---\nname: release-notes\n..."
+}
+```
+
+- `files` are paths relative to the bundle folder with `/` separators, sorted, at most 200; `truncated` is `true` when there are more.
+- `content` is `SKILL.md` as text, at most 256 KiB.
+
+Errors:
+
+- `403` the key is not an administrator's
+- `404` Skill not found
+- `500` the bundle could not be read
 
 Events: none.
 

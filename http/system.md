@@ -186,6 +186,22 @@ Response: `200`
         "moves": true
       }
     ]
+  },
+  "process": {
+    "rss_bytes": 52428800,
+    "cpu_percent": 1.5,
+    "num_gc": 12,
+    "last_gc_at": "2026-10-14T11:59:58Z",
+    "open_files": 40,
+    "open_files_limit": 10240
+  },
+  "system": { "load1": 1.2, "load5": 0.9, "load15": 0.7 },
+  "active": { "conversations": 1, "subagents": 0, "scheduled": 0 },
+  "space": {
+    "data": { "free_bytes": 100000000000, "total_bytes": 500000000000, "level": "ok" },
+    "home": { "free_bytes": 100000000000, "total_bytes": 500000000000, "level": "ok" },
+    "same_volume": true,
+    "checked_at": "2026-10-14T11:59:50Z"
   }
 }
 ```
@@ -196,12 +212,178 @@ Response: `200`
 - `storage.measured_at` is when the disk scan ran. A call within 30 seconds of that time returns the same `storage` object, including a `partial` one. Wait until `measured_at` is 30 seconds old before expecting a new scan.
 - `bytes` and `files` are logical sizes of regular files, counted once. Symlinks are not followed and are not counted. `partial` is true when the scan stopped early (2 seconds, 100,000 entries, or an entry that could not be read). `skipped` counts entries that were not measured: unreadable entries, symlinks and files that are not regular.
 - `categories` contains only ids that have at least one counted file, largest `bytes` first, then `id` ascending. `home_bytes` / `home_files` are the part under `home`. `data_bytes` / `data_files` are the part under `data_dir` when that path is different; otherwise they are `0` and the whole total is in the home fields. A data directory inside the home is not counted twice.
-- `id` is one of `conversations`, `browser`, `code`, `bot`, `runtimes`, `workspaces`, `memory`, `skills`, `plugins`, `visualizations`, `mcp`, `approvals`, `access`, `logs`, `cache`, `backups`, `tasks`, `other`.
+- `id` is one of `conversations`, `browser`, `code`, `bot`, `runtimes`, `workspaces`, `memory`, `skills`, `plugins`, `visualizations`, `mcp`, `approvals`, `access`, `computer_use`, `logs`, `cache`, `backups`, `tasks`, `other`.
 - `moves` is true for `conversations`, `workspaces`, `tasks`, `bot` and `code`: those follow the data location. Every other id stays with the home.
+- `process`, `system`, `active` and `space` are read on every call and cost no disk walk; a client may poll them every few seconds. A field the operating system cannot give is `null`, never `0`.
+- `process.rss_bytes` is this process's resident memory (Linux `/proc/self/statm`, macOS one `ps` call; `null` on Windows). `cpu_percent` is this process's CPU time (user plus system, `getrusage`) over the wall time since the previous call, where 100 is one full core; `null` on the first call after start and on Windows. `num_gc` and `last_gc_at` are the Go garbage collector's count and last run (`null` before the first). `open_files` counts this process's descriptors (`/proc/self/fd` on Linux, `/dev/fd` on macOS) and `open_files_limit` is the soft `RLIMIT_NOFILE`; both `null` on Windows.
+- `system.load1`, `load5`, `load15` are the host load averages (Linux `/proc/loadavg`, macOS `vm.loadavg`); `null` on Windows.
+- `active` splits `active_runs`: `subagents` are runs of subagent conversations, `scheduled` runs started by a schedule, `conversations` every other run (including Bot and external-agent runs). The three add up to `active_runs`.
+- `space` is the object `GET /v1/storage` returns under `space` (free and total bytes of the data and home volumes, each with its `level` `ok`, `low` or `critical` by the same rule, see docs/storage.md). It is rechecked at most every 30 seconds (bounded by 2 seconds) and is `null` until a check has succeeded. Any key sees it.
 
 Errors:
 
 - `500` Core home unavailable
+
+Events: none.
+
+### GET /v1/resources/categories/{id}
+
+Auth: administrator key
+Effect: Lists the largest items of one storage category: the direct children of the category's folders under the home and, when it differs, the data root. Conversations are grouped by conversation (a transcript and its side files and folders). Uses the scan's rules (no symbolic links followed or counted, 2 seconds and 100,000 entries at most) and is cached for 30 seconds per category.
+
+Request: no body. Query: `limit` (default `10`, at most `100`).
+
+Response: `200`
+
+```json
+{
+  "id": "conversations",
+  "measured_at": "2026-10-14T12:00:00Z",
+  "partial": false,
+  "items": [
+    {
+      "name": "Check the server logs",
+      "path": "data:sessions/2026-10-14T09-00-00_ab12",
+      "bytes": 1048576,
+      "files": 4,
+      "conversation_id": "2026-10-14T09-00-00_ab12",
+      "archived": false,
+      "modified": "2026-10-14T11:00:00Z"
+    }
+  ]
+}
+```
+
+- `id` is one of the ids `GET /v1/resources` lists under `storage.categories`.
+- `items` are sorted by `bytes`, largest first (then `path`), and cut to `limit`. `path` is relative to the home (`home:`) or the data root (`data:`, only when the data root is not the home). `modified` is the newest file's modification time. `conversation_id` and `archived` are present only for conversations; `name` is the conversation's custom title when it has one, else its id.
+- `cleanup` is present for `logs`, `cache`, `browser` and `code` when the matching `POST /v1/resources/cleanup` kind (`logs`, `cache`, `old_browsers`, `package_cache`) has something to delete: `{ "kind": "old_browsers", "bytes": 627048448 }`.
+- `partial` is true when the walk stopped at its budget.
+
+Errors:
+
+- `400` `limit` is not a positive integer
+- `403` not an administrator key
+- `404` unknown category
+
+Events: none.
+
+### GET /v1/resources/cleanup
+
+Auth: administrator key
+Effect: Lists what Core can delete and rebuild without losing anything of the owner's. Conversations, workspaces, memory, skills, settings and keys are never listed; archived conversations and an old data location stay on `GET /v1/storage`.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{ "items": [ { "kind": "logs", "bytes": 4096000, "volume": "home" } ] }
+```
+
+- `kind` is one of `logs` (rotated log files in `<home>/logs`, such as `core.log.1`; the files being written are kept), `cache` (everything in `<home>/cache`), `old_browsers` (managed browser builds in `<home>/browser/runtime-*` other than the one `runtime.json` records and the one `GYRES_BROWSER_EXECUTABLE` names) and `package_cache` (the run_code package cache `<data>/code/package-cache`). Only kinds with something to delete are listed.
+- `volume` says which disk the bytes free: `home` or `data`.
+
+Errors:
+
+- `403` not an administrator key
+
+Events: none.
+
+### POST /v1/resources/cleanup
+
+Auth: administrator key
+Effect: Deletes one kind listed by `GET /v1/resources/cleanup`. Only direct children of the kind's folder are removed. The folder and every folder on the way to it must be real folders, not symbolic links; nothing is followed through a link (a link inside the folder is removed as a link).
+
+Request:
+
+```json
+{ "kind": "logs" }
+```
+
+Response: `200`
+
+```json
+{ "kind": "logs", "freed_bytes": 4096000 }
+```
+
+- `freed_bytes` is the size of the regular files removed.
+
+Errors:
+
+- `400` invalid JSON, or a kind that is unknown or has nothing to delete now (including `old_browsers` when no browser in use is recorded)
+- `403` not an administrator key
+- `409` the kind is in use: a browser install is running (`old_browsers`) or a run_code execution is running (`package_cache`); or the data directory is moving (`storage_maintenance`)
+- `503` storage maintenance or unavailable (the storage gate)
+
+Events: none.
+
+### GET /v1/resources/history
+
+Auth: administrator key
+Effect: Daily totals of Core's disk use. Core records the first complete storage scan (`GET /v1/resources`) of each local day in `<home>/storage-history.jsonl`, keeping the last 400 days recorded; days without a scan are absent.
+
+Request: no body. Query: `days` (default `30`, at most `400`): how many of the most recent recorded days to return.
+
+Response: `200`
+
+```json
+{ "days": [ { "day": "2026-10-14", "bytes": 10, "categories": { "conversations": 10 } } ] }
+```
+
+- `days` is oldest first. `bytes` and `categories` are the scan's totals (category ids as in `storage.categories`).
+
+Errors:
+
+- `400` `days` is not a positive integer
+- `403` not an administrator key
+
+Events: none.
+
+### GET /v1/processes
+
+Auth: administrator key
+Effect: Lists the processes this Core started and still owns: external agents, the managed browser, MCP servers and code runs (run_code, exec_command, hooks). Never other processes on the machine. One `ps` call samples them; there is no stop action.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "sampled_at": "2026-10-14T12:00:00Z",
+  "processes": [
+    {
+      "pid": 48213,
+      "kind": "browser",
+      "name": "agent-browser",
+      "started_at": "2026-10-14T10:00:00Z",
+      "cpu_percent": 3.4,
+      "rss_bytes": 641728512,
+      "children": 6
+    },
+    {
+      "pid": 48300,
+      "kind": "agent",
+      "name": "Codex",
+      "detail": "codex",
+      "harness": "codex",
+      "conversation_id": "2026-10-14T09-00-00_ab12",
+      "title": "Check the server logs",
+      "started_at": "2026-10-14T11:00:00Z",
+      "cpu_percent": 0.2,
+      "rss_bytes": 83886080
+    }
+  ]
+}
+```
+
+- `kind` is `agent`, `browser`, `mcp` or `code`. `name` is the agent's label, `agent-browser`, the MCP server's executable, or `run_code` / `exec_command` / `hook`; `detail` is the executable's file name. `harness` is the agent's lowercase name. Command lines are never returned.
+- `conversation_id` and `title` are present when the process was started for a conversation (`title` only when it has a custom title). `started_at` is when Core registered it. Sorted by `started_at`.
+- `cpu_percent` and `rss_bytes` include the process's descendants, counted in `children` (absent when there are none). `cpu_percent` is `ps`'s figure (macOS: recent average; Linux: average since the process started). Both are `null` on Windows.
+
+Errors:
+
+- `403` not an administrator key
 
 Events: none.
 
@@ -215,8 +397,10 @@ Request: no body.
 Response: `200`
 
 ```json
-{ "enabled": false, "max_turns": 100, "goal_max_continuations": 100 }
+{ "enabled": false, "max_turns": 100, "goal_max_continuations": 100, "revision": "5f1c0e9a3b7d2a4c6e8f0a1b" }
 ```
+
+- `revision` identifies the saved values; a `PUT` may send it back to be refused when they changed meanwhile.
 
 - `goal_max_continuations` caps a goal's automatic continuations ([goal](runs.md#goal)); `100` until someone saves another.
 - `enabled` is false until a cap is turned on. While it is false, new tasks are not capped, and `max_turns` is still stored.
@@ -379,10 +563,11 @@ Query: all optional.
 - `session` matches that conversation, including every lane of it, or one lane when the value is the conversation id, a tilde, and the lane id.
 - `model`, `provider`, `purpose`, `source` and `status` keep rows whose field is exactly that string.
 - `from` and `to` are RFC3339. `from` is inclusive and `to` is exclusive (`started` >= `from` and `started` < `to`). When both are set, `to` must be after `from`. A date with no time is rejected.
-- `origin` is `interactive`, `scheduled`, `compaction`, `memory_review` or `recap`. Omitted returns every bucket. It narrows the page, the summary, and the session, day and model groups. It does not narrow `breakdown.origins`.
-- `executor` is omitted, `gyres`, `all`, `agents`, `codex`, `grok` or `claude`. Omitted and `gyres` keep Core's own rows (a missing `executor` counts as `gyres`). `agents` keeps every external-agent row. `all` keeps every row. `codex`, `grok` and `claude` keep that agent.
+- `origin` is `interactive`, `scheduled`, `compaction`, `memory_review` or `recap`. Omitted returns every bucket. It narrows the page, the summary, and every breakdown except `breakdown.origins`.
+- `executor` is omitted, `gyres`, `all`, `agents`, `codex`, `grok` or `claude`. Omitted and `gyres` keep Core's own rows (a missing `executor` counts as `gyres`). `agents` keeps every external-agent row. `all` keeps every row. `codex`, `grok` and `claude` keep that agent. It narrows the page, the summary, and every breakdown except `breakdown.executors`.
 - `masked` is `true` (keep only rows where the privacy plugin masked at least one value) or `false`. Omitted means `false`.
-- `tz` is an integer number of minutes, from -840 to 840, the same value JavaScript's `getTimezoneOffset()` returns. It only names `breakdown.days`: that many minutes are subtracted from the UTC time (a negative value moves the clock forward) and the result is formatted `YYYY-MM-DD`. Omitted means `0`.
+- `project` is a Project id. It keeps the rows of that Project's conversations: every conversation bound to the Project's workspace (its chats and their side lanes, scheduled runs in it, Task attempts in it) and every conversation of a Task that belongs to the Project. Requests without a conversation (hooks and plugins outside a chat) are left out. It narrows the page, the summary and every breakdown. An unknown id is `404`.
+- `tz` is an integer number of minutes, from -840 to 840, the same value JavaScript's `getTimezoneOffset()` returns. It names `breakdown.days` and `breakdown.day_models` and places `breakdown.hours`: that many minutes are subtracted from the UTC time (a negative value moves the clock forward) and the result is formatted `YYYY-MM-DD` (or read as weekday and hour). One offset applies to the whole range; daylight-saving changes inside it are not modelled. Omitted means `0`.
 - `offset` is how many matching rows to skip. Omitted means `0`. Past the end, `records` is empty and `total` is still the full count.
 - `limit` is the page size. Omitted or `0` means 100. Above 200 is treated as 200. The response `limit` is the value after that rule.
 
@@ -432,7 +617,12 @@ Response: `200`
     "duration_ms": 2000,
     "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 },
     "cost_usd": 0,
-    "cost_known": 0
+    "cost_known": 0,
+    "failed": 0,
+    "timed_calls": 0,
+    "first_token_median_ms": null,
+    "first_token_p90_ms": null,
+    "speed_tps": null
   },
   "breakdown": {
     "sessions": [
@@ -454,7 +644,11 @@ Response: `200`
             "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 }
           }
         },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 1,
+        "cache_input": 140,
+        "cache_read": 40,
+        "failed": 0
       }
     ],
     "days": [
@@ -466,7 +660,13 @@ Response: `200`
         "unknown": 0,
         "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 },
         "last": "2026-10-14T12:00:00Z",
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 1,
+        "cache_input": 140,
+        "cache_read": 40,
+        "failed": 0,
+        "sessions": 1,
+        "top_model": "example-model"
       }
     ],
     "models": [
@@ -478,7 +678,15 @@ Response: `200`
         "unknown": 0,
         "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 },
         "last": "2026-10-14T12:00:00Z",
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 1,
+        "cache_input": 140,
+        "cache_read": 40,
+        "failed": 0,
+        "timed_calls": 0,
+        "first_token_median_ms": null,
+        "first_token_p90_ms": null,
+        "speed_tps": null
       }
     ],
     "origins": [
@@ -490,7 +698,11 @@ Response: `200`
         "unknown": 0,
         "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 },
         "last": "2026-10-14T12:00:00Z",
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 1,
+        "cache_input": 140,
+        "cache_read": 40,
+        "failed": 0
       },
       {
         "key": "scheduled",
@@ -499,7 +711,11 @@ Response: `200`
         "partial": 0,
         "unknown": 0,
         "tokens": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 0,
+        "cache_input": 0,
+        "cache_read": 0,
+        "failed": 0
       },
       {
         "key": "compaction",
@@ -508,7 +724,11 @@ Response: `200`
         "partial": 0,
         "unknown": 0,
         "tokens": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 0,
+        "cache_input": 0,
+        "cache_read": 0,
+        "failed": 0
       },
       {
         "key": "memory_review",
@@ -517,7 +737,11 @@ Response: `200`
         "partial": 0,
         "unknown": 0,
         "tokens": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 0,
+        "cache_input": 0,
+        "cache_read": 0,
+        "failed": 0
       },
       {
         "key": "recap",
@@ -526,7 +750,11 @@ Response: `200`
         "partial": 0,
         "unknown": 0,
         "tokens": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 0,
+        "cache_input": 0,
+        "cache_read": 0,
+        "failed": 0
       },
       {
         "key": "plugins",
@@ -535,8 +763,39 @@ Response: `200`
         "partial": 0,
         "unknown": 0,
         "tokens": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 },
-        "cost_usd": 0
+        "cost_usd": 0,
+        "cache_known": 0,
+        "cache_input": 0,
+        "cache_read": 0,
+        "failed": 0
       }
+    ],
+    "executors": [
+      {
+        "key": "gyres",
+        "requests": 1,
+        "known": 1,
+        "partial": 0,
+        "unknown": 0,
+        "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 },
+        "last": "2026-10-14T12:00:00Z",
+        "cost_usd": 0,
+        "cache_known": 1,
+        "cache_input": 140,
+        "cache_read": 40,
+        "failed": 0
+      }
+    ],
+    "day_models": [
+      {
+        "day": "2026-10-14",
+        "key": "example-model",
+        "requests": 1,
+        "tokens": { "input": 100, "output": 20, "cache_read": 40, "cache_write": 0 }
+      }
+    ],
+    "hours": [
+      { "weekday": 3, "hour": 12, "requests": 1, "total_tokens": 160 }
     ]
   },
   "total": 1,
@@ -566,7 +825,13 @@ Response: `200`
 - `breakdown.sessions` is one object per conversation, largest token total first, then latest `last`, then `session_id`. `models` on a session is the distinct model names, sorted. `origins` on a session has only the buckets that had rows. `cost_usd` sums that session's agent estimates.
 - `breakdown.days` is sorted by `key` ascending. `key` is the `YYYY-MM-DD` from `tz`. `breakdown.models` is one object per model name (`key`), largest token total first.
 - `breakdown.origins` always has six objects, in this order, even when every count is zero and even when `origin` filtered the rest of the response: `interactive`, `scheduled`, `compaction`, `memory_review`, `recap`, `plugins`. A group has `key`, `requests`, `known`, `partial`, `unknown`, `tokens`, `cost_usd`, and `last` (omitted when the group is empty).
-- `days`, `models` and `sessions` are empty arrays when they have no rows. They are not null.
+- `summary.failed` counts rows with `status` `failed`. `summary.timed_calls` counts Core's own timed calls: a call with `first_token_at`, a `finished` after it, and `reported` usage with output tokens (the rule of `GET /v1/sessions/{id}/usage`); external-agent rows are never timed. `speed_tps` is Σ output tokens of timed calls ÷ Σ (`finished` − `first_token_at`) in seconds, to one decimal. `first_token_median_ms` is the median of (`first_token_at` − `started`) over timed calls (the mean of the two middle values for an even count); `first_token_p90_ms` is the nearest-rank 90th percentile. The three are `null` when `timed_calls` is 0, never 0.
+- Every group in `sessions`, `days`, `models`, `origins` and `executors` has `cache_known`, `cache_input` and `cache_read` with the summary's rule (hit rate is `cache_read` ÷ `cache_input` over `cache_known` rows), and `failed`. Only `models` rows add `timed_calls`, `first_token_median_ms`, `first_token_p90_ms` and `speed_tps`, with the summary's rule. Only `days` rows add `sessions` (distinct conversations that day) and `top_model` (the `models` key with the largest token total that day, ties by key; `""` when none).
+- `breakdown.executors` is one group per executor (`key` is `gyres` for Core's own rows, else the agent name), largest token total first, then `key`. It ignores `executor` and honours every other filter, `origin` included.
+- `breakdown.day_models` is one object per day and model with rows: `day` as in `days`, `key` as in `models`, `requests` and `tokens`. Sorted by `day`, then largest token total, then `key`.
+- `breakdown.hours` is one cell per weekday and hour with rows, in local time from `tz`: `weekday` 0–6 (0 is Sunday, as JavaScript's `getDay()`), `hour` 0–23, `requests`, and `total_tokens` (input + output + cache read + cache write). Sorted by `weekday`, then `hour`. Empty cells are omitted.
+- Older Cores omit every field in the three items above; clients treat them as optional.
+- `days`, `models`, `sessions`, `executors`, `day_models` and `hours` are empty arrays when they have no rows. They are not null.
 
 Errors:
 
@@ -577,6 +842,7 @@ Errors:
 - `400` invalid executor
 - `400` invalid time zone
 - `400` invalid masked filter
+- `404` project not found
 - `500` cannot read usage records
 
 Events: none.
@@ -842,16 +1108,18 @@ Request:
 - `enabled` (boolean) turns the cap on or off. Turning it off keeps `max_turns`.
 - `max_turns` (integer) is the cap, from 100 through 4294967295. A fraction, a negative number, or a number above that range is rejected.
 - `goal_max_continuations` (integer, optional) is the goal continuation cap, 1 through 10000. Left out, the saved value stays.
+- `revision` (string, optional) is the value from `GET /v1/task-limits` or the previous save's response. When sent and the saved values have changed since, nothing is saved (`409`). Left out, the save is unconditional.
 - The body is at most 4096 bytes. Unknown fields are ignored. Omitting either field is rejected.
 
 Response: `200`
 
-The body is the saved object, the same shape as `GET /v1/task-limits`.
+The body is the saved object, the same shape as `GET /v1/task-limits`, with the new `revision`.
 
 Errors:
 
 - `400` `enabled 和 max_turns 必须完整提供，次数必须是至少 100 的整数` — the body is not JSON, is larger than 4096 bytes, a field is missing, or `max_turns` is not a whole number in range
 - `400` `最大循环次数必须是至少 100 的整数` — both fields were read and `max_turns` is below 100
+- `409` `配置已在其他窗口更新，请重新加载后再修改` — `revision` is not the current one
 - `500` the setting could not be saved
 
 Events: none.
