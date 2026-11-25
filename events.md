@@ -249,7 +249,7 @@ Refetch: `GET /v1/sessions/{id}/run-state` and `GET /v1/sessions/{id}/pending-me
 
 ### bot.changed
 
-The Bot's saved state changed (profile, models, chats, tasks, supervision agenda), its memory text or memory change log changed, a Bot chat started or finished a run, or a supervisor run started or ended. Optional: listed in `ready.publishes`.
+The Bot's saved state changed (profile, models, chats, tasks, supervision agenda), its memory text or memory change log changed, a Bot chat started or finished a run, or a supervisor run started or ended. It is also sent when the Bot list changes: a specialist Bot was created, saved or deleted, or a specialist's memory changed. Optional: listed in `ready.publishes`.
 
 ```json
 { "type": "bot.changed" }
@@ -257,7 +257,7 @@ The Bot's saved state changed (profile, models, chats, tasks, supervision agenda
 
 No `session_id`.
 
-Refetch: `GET /v1/bot`. If the memory view is open, also `GET /v1/bot/memory`; if supervisor runs are shown, also `GET /v1/bot/supervisor/runs` (and an open run's `GET /v1/bot/supervisor/runs/{run_id}`).
+Refetch: `GET /v1/bot` (and `GET /v1/bots` when the Bot list is shown). If the memory view is open, also `GET /v1/bot/memory` (a specialist's: `GET /v1/bots/{id}/memory`); if supervisor runs are shown, also `GET /v1/bot/supervisor/runs` (and an open run's `GET /v1/bot/supervisor/runs/{run_id}`).
 
 ### peers.changed
 
@@ -711,6 +711,8 @@ The run is waiting for the owner. The native tool asks 1 to 3 questions, each wi
 - `id` is the batch id (a UUID), the same as `question_id` on `session.question`.
 - `questions[].id` is the id answers are keyed by.
 - `created` and `deadline` are UTC timestamps.
+
+- The same batch is sent again with a later `deadline` when the owner's typing holds it (`POST /v1/sessions/{id}/user-questions/{qid}/activity`); replace the shown batch by `id`.
 
 Refetch: `GET /v1/sessions/{id}/user-questions` if this frame was missed. Answer with `POST /v1/sessions/{id}/user-questions/{qid}/answer`.
 

@@ -14,14 +14,14 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `name` (string) is `Gyres Bot` until a save. A save stores the trimmed name.
 - `description` (string) is built-in delegation guidance until the owner saves one. A stored description that is empty, or exactly `Your persistent local assistant.`, is filled with that guidance once, before any request. A save stores the trimmed description, including `""`, and a later empty save stays empty.
 - `main_session_id` (string) is the current main chat, `""` while there is none. Saving the profile (`PUT /v1/bot`) creates it, and so does the first write that needs it (a side chat, a background task, a delivered result, a channel message). `GET /v1/bot` never creates it. Once `configured` is true there is always one. A main chat that was deleted or archived is replaced by a fresh one the same way; an archived one stays archived.
-- `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the model of the main chat and each channel kind's current chat (including chats `/new` creates) and of the side chats branched from them. Both `""` means the Settings default, then the first model Core can use. Their own saved model is not used; `PUT /v1/sessions/{id}/settings` in one of them sets this pair. Any other conversation, a chat `/new` set aside included, runs on its own setting (see `unified_chats`). A project's Coordinator chats (with `project_id`) run on that project's Coordinator model when the project has one (`coordinator_model` on the project), else on this pair; `PUT /v1/sessions/{id}/settings` there sets the project's Coordinator model unless its `target` is `bot` or `task`, and an empty choice clears it. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
+- `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the model of the main chat and each channel kind's current chat (including chats `/new` creates) and of the side chats branched from them. Both `""` means the Settings default, then the first model Core can use. Their own saved model is not used; `PUT /v1/sessions/{id}/settings` in one of them sets this pair. Any other conversation, a chat `/new` set aside included, runs on its own setting (see `unified_chats`). A project's Coordinator chats (with `project_id`) run on that project's Coordinator model, its lead Bot's Bot model (`coordinator_model` on the project), when set, else on this pair; `PUT /v1/sessions/{id}/settings` there sets the project's Coordinator model unless its `target` is `bot` or `task`, and an empty choice clears it. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, always present) are the reasoning effort of the Bot model and of the task model. `""` is the model's default (no effort is sent). A task without a task model takes the Bot model with its effort. The first Core start after efforts were added copies the main chat's saved effort to an empty `bot_reasoning_effort` once, when that saved setting names the Bot model.
 - `task_provider_id` and `task_model` (strings, always present) choose the model for a new background task. Both `""` means the Bot model, then Core's default model resolution. A non-empty pair is pinned for every new task: the fallback chain is not used. A pair that names an external agent is ignored at task creation as if it were unset.
-- `system_prompt` (string) is the prompt every conversation that runs as the Bot receives (the pinned chats and the supervisor, and once `configured` is true every other top-level conversation on Gyres' own models, #2198, #2209; the current Coordinator appends its section): a fixed introduction, then ` Your name is <name>.` when the name is non-empty, then a space and the description when that is non-empty, then a fixed style section. Memory is not part of this string.
+- `system_prompt` (string) is the prompt every conversation that runs as the Bot receives (the pinned chats, the chats `/new` set aside and their lanes, and the supervisor; the current Coordinator appends its section). A plain conversation never gets it, configured or not (#2477, docs/bots.md "Plain conversations"). The string is a fixed introduction, then ` Your name is <name>.` when the name is non-empty, then a space and the description when that is non-empty, then a fixed style section. Memory is not part of this string.
 - `chats` (array) is every Bot chat, oldest first. See Chats.
 - `channel_chats` (object) maps a kind (`feishu`, `discord`) to the session id of the chat that kind talks to now. Kinds with no chat yet are absent. `{}` when none are bound.
 - `chat_rotation` and `side_chat_branches` are always true: this Core accepts `POST /v1/bot/chats/{id}/new` and a `from` on `POST /v1/bot/chats`.
-- `unified_chats` is always true: every conversation is one kind (#2198) and `GET /v1/sessions?all=1` lists them with their role (see the sessions reference, "Unified list"). `chats` stays as before: every Bot chat record, unchanged, for older clients. A chat that holds no role (set aside by `/new`, a side or parallel chat) runs on its own model setting: Core wrote the model it followed there when it lost its role, and a side or parallel chat opened now starts on the Settings default.
+- `unified_chats` is always true: every conversation is one kind (#2198) and `GET /v1/sessions?all=1` lists them with their role (see the sessions reference, "Unified list"). `chats` stays as before: every Bot chat record, unchanged, for older clients. A chat that holds no role has its own model setting: Core wrote the model it followed there when it lost its role, and a side or parallel chat opened now starts on the Settings default. A chat set aside by `/new` stays its Bot's chat, with the Bot prompt, Bot memory and dispatch tools (#2481, docs/bots.md "Earlier chats"); a side or parallel chat of no Bot chat is a plain conversation (#2477): none of them.
 - `tasks` (array) is newest first. See Tasks.
 - `projects` (array) is every registered project in the order of `GET /v1/projects`, for a project list next to the Bot's chats: `id`, `name`, `available` (the project's directories can be used now), `running` (one of its open chats, the current Coordinator chat or a project chat without `ended`, holds a live turn), and when set `folderless`, `bot_hidden`, `coordinator_session_id` (the current Coordinator chat, absent until `POST /v1/projects/{project}/coordinator` created it) and `run_state` (as for a chat: the Coordinator chat's when it is not `idle`, else the first open chat's that is not `idle`, else `idle`). `[]` when none are registered.
 - `agenda` (array, read only) is the Bot's supervision agenda: open items first, then settled ones, each group most recently updated first. See Agenda. `[]` when empty.
@@ -30,6 +30,31 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 A session id is UTC time `YYYY-MM-DDTHH-MM-SS`, then `_`, then a UUID. Example: `2026-10-14T12-02-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b`.
 
 External-agent provider ids, refused on `PUT /v1/bot`, are `local-codex`, `local-grok`, `local-pi`, `local-claude`, and `local-cursor`.
+
+## Bot list
+
+A Core has a list of Bots. The Bot every other section of this page describes is the **primary** Bot: it always exists, it is first in the list, and it cannot be deleted. `/v1/bot` and its sub-routes are the primary's. The other Bots are **specialists**: each has its own id, name, description (its persona), Bot model and task model, chats and memory file. A specialist's chats are omitted from `GET /v1/sessions` without `all=1` and from the archived list without `all=1`, as the primary's are; `GET /v1/sessions?all=1` lists them with `bot_id` and their role (see the sessions reference, "Unified list"), and `GET /v1/bots/{id}` keeps listing them in `chats`. A specialist's main chat branches side chats (`POST /v1/bot/chats` with `from` naming an entry of it; the record is in the specialist's `chats`), and `POST /v1/bot/chats/{id}/new` on it gives the specialist a fresh main chat; the chat set aside stays the specialist's, `ended`, on the model it ran on as its own setting. `PATCH` and `DELETE /v1/bot/chats/{id}` accept a specialist's side chats too. A plan may belong to a specialist (`bot_id`, see Schedules).
+
+A conversation that is a specialist's chat runs as that specialist: its prompt is a fixed introduction naming the specialist, then a space and the description when non-empty, then the fixed style section; its context carries that specialist's memory, not the primary's, and the owner memory as every conversation does; it runs on the specialist's Bot model (when unset, the primary's Bot model, then the Settings default), and `PUT /v1/sessions/{id}/settings` there sets the specialist's Bot model (with `target` `task`, its task model). It runs only on configured providers, never on an external agent. A specialist has no background tasks, agenda or supervisor of its own: those stay with the primary. A specialist may have channel apps of its own (see [Channels](#channels)); each talks to its own channel chat of that specialist. Its task model runs the tasks other Bots hand to it and, as a project's lead, the workers it starts.
+
+**Project binding.** A specialist works in at most one project (`project_id`); a project may have several Bots. The primary works outside projects and refuses a binding. A bound specialist's main chat is bound to the project like its Coordinator chat: the project's directories, instructions, memory, library and skills, and the project's list (`project_list`); nothing of other projects. `PUT /v1/bots/{id}` with another `project_id` moves the main chat to that project in place: the same conversation, with a fresh context from its next turn. Its workspace cannot be changed with `PUT /v1/sessions/{id}/workspace` (`409`).
+
+**Project lead.** A project names at most one lead Bot (`lead_bot_id` on the project, see Projects), a specialist bound to it. The lead's main chat is the project's Coordinator chat: it keeps the project's `coordinator_session_id`, is listed with `GET /v1/bot`'s `chats` and `projects` and with the role `coordinator` in `GET /v1/sessions?all=1`, and its side chats are branched as before. The lead runs with the primary's introduction rewritten for a lead, its own name and description, the Coordinator section in its main chat, and the background tasks, radar and agenda tools; its tasks and agenda items are the Core's one list (`GET /v1/bot`'s `tasks` and `agenda`), they report back to the chat that started them and run on the lead's task model, else the primary's task model, else the lead's Bot model, else the primary's. A project's reports and notices that no chat claims (an agenda item of the project, a project Task's notice, a report whose requesting conversation is gone) go to its lead's main chat, and to the primary's main chat when it has none. A bound specialist that does not lead has no background tasks; other Bots can hand it tasks.
+
+**Tasks handed to another Bot.** The primary and a project's lead can hand a background task to another Bot of the list. Such a task is one of `GET /v1/bot`'s `tasks` with `target_bot_id`. It runs in its own hidden conversation (`session_id`), never in the target's main chat, which stays as it was: with the target's prompt, memory and model (its task model, else its Bot model, else the primary's Bot model, else the Settings default), in the target's project when it is bound (`project_id`), unattended. Its outcome is reported to the chat that handed it over; when that chat is gone, to the handing Bot's main chat, then to the lead of the project it was handed from, then to the primary's main chat. Core refuses a hand to the handing Bot itself, to a Bot already on the work's chain since the owner's message, past two hands per chain, and past three per turn.
+
+**Coordinators migrate.** The first start of a Core with the Bot list's projects turns each project's existing Coordinator chat into a specialist bound to the project and leading it: the chat is its main chat, named after the project, with the primary's description and a copy of the primary's memory file, and the project's Coordinator model as its Bot model. A hidden project migrates as well. A project that never opened a Coordinator chat, or whose chat is gone, gets its lead from `POST /v1/projects/{project}/coordinator`, which creates one the same way.
+
+Each Bot in the list:
+
+- `id` (string): `bot-` and 16 lowercase hex characters. The primary has one too; it never changes.
+- `primary` (bool): true for the first Bot only.
+- `created` (string, UTC RFC3339): when the Bot entered the list. For the primary of a Core that had a Bot before the list existed, the time the list was made.
+- `configured`, `name`, `description`, `main_session_id`, `bot_provider_id`, `bot_model`, `bot_reasoning_effort`, `task_provider_id`, `task_model`, `task_reasoning_effort`, `chats`: as in Profile. A specialist is always `configured` and always has a main chat, created with it.
+- `project_id` (string): the project a specialist is bound to; `""` for none and always for the primary.
+- `lead_of` (string): present when the Bot is that project's lead.
+- `error` (string): present only when this Bot's stored state could not be read at start; its changes are refused until the file is repaired and Core restarts.
+- `system_prompt` (string): on `GET`, `PUT` and `POST` of one Bot only, not in the list.
 
 ## Chats
 
@@ -75,6 +100,9 @@ Each chat:
 - `delivered` (bool) is present and true once that outcome was handed to the requesting chat.
 - `report` (bool) is present and true on a hidden task whose outcome is reported back to the requesting chat (every hidden task created since #1507).
 - `reply` (object) is present when the request arrived from a channel: `channel` (kind), `chat_id`, and `message_id`. Absent means the request came from the app.
+- `dispatcher_bot_id` (string) is present on tasks a Bot started since Bot-to-Bot dispatch: the id (`GET /v1/bots`) of the Bot whose conversation started it.
+- `target_bot_id` (string) is present on a task handed to another Bot: that Bot's id. Its conversation is a hidden Bot session.
+- `dispatch_chain` (array of strings) is present on a task handed to another Bot, and on a task started while handling one: the Bot ids the work passed through since the owner's message, in order, the target last.
 
 ## Agenda
 
@@ -122,7 +150,7 @@ After `/new`, a report for a chat it set aside (a task outcome, a supervisor mes
 
 ### Notices
 
-Core's own notices to the owner are never broadcast. Each is recorded in a Bot chat and posted to at most one channel: supervisor messages, needs-attention notices of Tasks, and idle reminders. Work that came from a channel goes back to that channel. Everything else follows `notify_target`: `last_active` (the default) posts to the channel the owner last wrote from, a channel kind (`feishu`, `discord`) pins that one, and `app_only` posts nowhere. A target that is switched off, not configured or has no owner yet keeps the notice in the app (the main chat) only. A post is also recorded, once, in that kind's current Bot chat (`channel_chats`), so a reply there has it in context.
+Core's own notices to the owner are never broadcast. Each is recorded in a Bot chat and posted to at most one channel: supervisor messages, needs-attention notices of Tasks, and idle reminders. Channels here are channel apps (instances, see Channel instances), never just a kind. Work that came from a channel app goes back to that app: a Task's notice goes to the app the task was asked from (a Bot task's reply, or the channel chat it was started from or runs in), also when that app talks to a specialist. Everything else follows `notify_target`: `last_active` (the default) posts to the app bound to the primary that the owner last wrote from, a channel kind (`feishu`, `discord`) pins the primary's app of that kind, and `app_only` posts nowhere. A target that is switched off, removed, bound to another Bot since, not configured or has no owner yet keeps the notice in the app (the main chat) only; no other app of the kind stands in. A post is also recorded, once, in that app's current Bot chat, so a reply there has it in context.
 
 A post about work that waits on a person's approval (an idle reminder for an approval, a supervisor `escalate` about an item whose target conversations or Tasks wait on one, a Task's approval notice) is followed by each waiting approval's own card in the owner's direct chat of that kind, the same card a channel turn shows: at most one card per approval and kind. Deciding the approval on any card or in the app updates every card of it; a card for an approval already decided or gone shows as expired when pressed.
 
@@ -154,25 +182,35 @@ Rules are entries joined by a blank line, `---`, and a blank line. An entry the 
 
 ## Channels
 
-Channel routes are administrator only. Kinds, in list order, are `feishu` and `discord`. At most one connection of each kind. Credentials are never returned: no Feishu app secret and no Discord token.
+Channel routes are administrator only. Kinds, in list order, are `feishu` and `discord`. Credentials are never returned: no Feishu app secret and no Discord token.
+
+**Channel instances.** Each connected app (a Feishu or Lark app, a Discord bot) is a channel instance with an `id`, a `kind` and the Bot it talks to (`bot_id`, an id from `GET /v1/bots`). A Core may have several instances of one kind, but each Bot has at most one instance of each kind, and one app (Feishu `app_id`, Discord application) is connected on one instance only. An instance created without a Bot talks to the primary. A message on an instance becomes a user message in that Bot's channel chat of the instance's kind: one persistent chat per instance, separate from the Bot's main chat, with the Bot's identity, memory, skills and approval rules. Its reply, progress, approval cards and files go back only to the instance the message came from, and only that instance's owner is answered. `/new` in the app, or `POST /v1/bot/chats/{id}/new` on that chat, starts a fresh channel chat for that instance only; the one set aside stays the Bot's chat (listed in its `chats`, `ended` set). Moving an instance to another Bot stops its running turn, drops the messages waiting behind it and sets the old Bot's channel chat aside; the new Bot's chat starts with the next message. A report to the old Bot's chat no longer posts on the moved app. Removing an instance deletes its credentials; its Bot keeps the channel chat for a later app of the kind. A new instance of a kind for the primary takes the kind as its id while no instance has it and that id was not removed while it talked to a specialist; any other new instance gets `<kind>-<8 hex>`, so results and notices meant for a removed app never reach another Bot's app. A scheduled plan names the instance it delivers to (see the schedules routes) and follows it to another Bot; notices go to the instance their work came from, else as `notify_target` says (see Notices).
+
+The first instance of a kind has the kind as its `id` (`feishu`, `discord`); later ones have the kind followed by `-` and 8 hexadecimal characters. A Core from before instances turns its Feishu app and its Discord bot into one instance each, bound to the primary, keeping their chats.
+
+`/v1/bot/channels/{kind}` addresses the primary's instance of that kind, as before instances; `/v1/bot/channel-instances/{id}` addresses any instance. Both take the same bodies and return the same objects.
 
 `GET /v1/bot/channels` and `PUT /v1/bot/channels` return:
 
 - `display.settings`, the stored global display object. Unset fields are omitted, so `{}` means nothing is stored. A field that is present is set, including `false` and `0`.
 - `display.builtin`, what an unset field resolves to when the kind has no built-in of its own. See the values below.
-- `channels`, one object per kind.
+- `channels`, one object per kind: the primary's instance of that kind, or the kind not set up.
 - `feishu`, the same object as the `feishu` element of `channels`.
+- `instances`, one object per channel instance, in the order they were created.
 
-Each kind object:
+Each channel object:
 
+- `id`, the instance. Omitted while the kind has no instance for the primary.
 - `kind` (`feishu` or `discord`).
+- `bot_id`, the Bot the instance talks to. Omitted with `id`.
+- `chat_session_id`, the instance's current channel chat on that Bot. Omitted before its first message.
 - `configured` (bool). False deletes nothing about display: a display override outlives the credentials.
 - `enabled` (bool). False when not configured. When configured, false means the credentials are kept and the connection is down.
 - `owner_bound` (bool). True after an owner is bound.
 - `claim_code` (string, 6 digits, leading zeros kept) is present after a manual setup until the owner claims it. The owner sends a direct message whose text, with surrounding whitespace removed, is exactly this code. The first such sender is the owner. Other messages before that are ignored. After a claim, `owner_bound` is true and `claim_code` is omitted. Scan-to-create binds the scanning user and has no claim code.
 - `state` (string) is present while a connection is up: `connecting`, `connected`, `reconnecting`, or `error`. Omitted when the kind is not configured or is switched off. A new connection starts at `connecting`.
 - `error` (string) is present when the connection reports one.
-- `display` is that kind's display view: `override` (stored kind override, `{}` when none), `inherited` (resolved with no override), and `effective` (resolved with the override). `inherited` and `effective` always include every display field.
+- `display` is that instance's display view (the kind's when it has no instance): `override` (stored instance override, `{}` when none), `inherited` (resolved with no override), and `effective` (resolved with the override). `inherited` and `effective` always include every display field.
 - Feishu, once configured: `brand` (`feishu` or `lark`), `app_id`, `bot_name`.
 - Feishu, while a scan is in progress or has failed and not been cleared: `registration`. `state` is `waiting` or `failed`. While waiting, `url` is the link to show as a QR code and `expires_at` is when it expires (RFC3339, Core host offset), both omitted until the link is known. On failure, `error` is set and `url` is omitted.
 - Discord, once configured: `bot_name`, `application_id`, and `invite_url`. `invite_url` is the link that adds the bot to a server the owner is in, which is what lets them open a direct message. Its query has `client_id` set to the application id, `scope` `bot`, `permissions` `67584`, and `integration_type` `0`. Omitted when there is no application id.
@@ -242,7 +280,7 @@ Response: `200`
 }
 ```
 
-`notify_target` is where notices without a channel of their own go (see Notices): `last_active`, `app_only` or a channel kind. `notify_channel` is the channel it resolves to now, `""` when notices stay in the app. `idle_nudge_minutes` is the idle reminder's wait, `0` when reminders are off; the default is 10.
+`notify_target` is where notices without a channel of their own go (see Notices): `last_active`, `app_only` or a channel kind. `notify_channel` is the channel app id it resolves to now (an app id such as `feishu-1a2b3c4d`, not only a kind), `""` when notices stay in the app. `idle_nudge_minutes` is the idle reminder's wait, `0` when reminders are off; the default is 10.
 
 `system_prompt` above is only the opening sentence. The field is the full assembled prompt: that introduction, then ` Your name is Research Bot.`, a space, the description, then the fixed style section. Before any save, `configured` is false, `name` is `Gyres Bot`, and `description` is the built-in guidance.
 
@@ -367,6 +405,185 @@ Errors:
 - `409` cannot undo: unknown change op
 - `409` cannot undo: the Bot-written section would exceed 3000 characters; merge or remove old rules first (replace/remove), then retry
 - `500` the file or the change log could not be read or written, including a corrupt change log
+
+Events: `bot.changed` on success.
+
+### GET /v1/bots
+
+Auth: any key
+Effect: Returns every Bot, the primary first, then the specialists in the order they were created. Creates nothing.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "bots": [
+    {
+      "id": "bot-4f1c2a907b6e4d11",
+      "primary": true,
+      "created": "2026-11-25T03:30:33Z",
+      "configured": true,
+      "name": "Research Bot",
+      "description": "Keeps long-running work moving.",
+      "main_session_id": "2026-10-14T12-02-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b",
+      "bot_provider_id": "",
+      "bot_model": "",
+      "bot_reasoning_effort": "",
+      "task_provider_id": "",
+      "task_model": "",
+      "task_reasoning_effort": "",
+      "chats": [],
+      "channel_chats": [
+        {"instance_id": "feishu", "kind": "feishu", "session_id": "2026-10-14T12-05-00_9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d"}
+      ]
+    }
+  ]
+}
+```
+
+`channel_chats` lists the channel apps bound to that Bot (see [Channels](#channels)), each with its current channel chat on the Bot. `session_id` is empty until the app's first message. List these chats under the Bot; a chat that an earlier `/new` or a move set aside is in `chats` with `ended` set.
+
+Errors:
+
+- `500` the stored Bot list cannot be used (damaged, written by a newer Core, or missing while specialists exist). The message names the file. The primary keeps working through `/v1/bot`.
+
+Events: none.
+
+### POST /v1/bots
+
+Auth: any key
+Effect: Creates a specialist Bot with its main chat.
+
+Request: the body of `PUT /v1/bot`, with the same rules for `name`, `description` and the model fields, and optionally `project_id` (string, a registered project's id; see Project binding). `notify_target` and `idle_nudge_minutes` are the primary's and are ignored here.
+
+```json
+{
+  "name": "Release Writer",
+  "description": "Drafts release notes from merged pull requests.",
+  "bot_provider_id": "provider-a",
+  "bot_model": "model-a"
+}
+```
+
+Response: `201` the new Bot, with `system_prompt`.
+
+Errors:
+
+- `400` the same errors as `PUT /v1/bot` for the fields above
+- `400`, `409` the project in `project_id` is not registered, or its primary directory cannot be used; the Bot is created, unbound, and the message names it
+- `500` the Bot list cannot be used, or the Bot or its main chat could not be saved. Nothing is left behind.
+
+Events: `bot.changed`, `sessions.changed`.
+
+### GET /v1/bots/{id}
+
+Auth: any key
+Effect: Returns one Bot, with `system_prompt`. Creates nothing.
+
+Path: `id` a Bot id from `GET /v1/bots`.
+
+Response: `200` the Bot.
+
+Errors:
+
+- `404` bot not found
+- `500` the Bot list cannot be used, or this Bot's state file is damaged
+
+Events: none.
+
+### PUT /v1/bots/{id}
+
+Auth: any key
+Effect: Saves a Bot's profile. For the primary this is `PUT /v1/bot`, with the same body and effects. For a specialist it saves the name, description and models, and first gives it a fresh main chat when its main chat was deleted or archived.
+
+Request: the body of `PUT /v1/bot`. A specialist ignores `notify_target` and `idle_nudge_minutes`. `project_id` (string, optional) binds a specialist to that project, `""` to none; omitted keeps it. A lead bound elsewhere stops leading its earlier project first.
+
+Response: `200` the Bot, with `system_prompt`.
+
+Errors:
+
+- `400` the same errors as `PUT /v1/bot`
+- `400` the primary Bot works outside projects (a non-empty `project_id` for the primary)
+- `400` project not found (`project_id`)
+- `404` bot not found
+- `409` the project's primary directory cannot be used, or the Bot's main chat is running (stop it first)
+- `500` the Bot could not be saved
+
+Events: `bot.changed`; `sessions.changed` when a main chat is created.
+
+### DELETE /v1/bots/{id}
+
+Auth: any key
+Effect: Deletes a specialist: a project's lead stops leading it first (the project has no lead then), then each of its chats is archived, then removes it from the list with its state and memory file. Its archived chats stay in the archive as ordinary conversations; a conversation unarchived from there no longer runs as that Bot.
+
+Path: `id` a specialist's id.
+
+Response: `200`
+
+```json
+{ "id": "bot-0a1b2c3d4e5f6071" }
+```
+
+Errors:
+
+- `404` bot not found
+- `409` the primary Bot cannot be deleted
+- `409` a chat of this Bot is running; stop it first
+- `500` the list could not be saved
+
+Events: `bot.changed`, `sessions.changed`.
+
+### GET /v1/bots/{id}/memory
+
+Auth: any key
+Effect: `GET /v1/bot/memory` for this Bot: its own memory file and change log. For the primary it is the same file as `/v1/bot/memory`.
+
+Path: `id` a Bot id.
+
+Response: `200` the memory view (see Memory).
+
+Errors:
+
+- `404` bot not found
+- `500` as `GET /v1/bot/memory`, or the Bot list cannot be used
+
+Events: none.
+
+### PUT /v1/bots/{id}/memory
+
+Auth: any key
+Effect: `PUT /v1/bot/memory` for this Bot. That Bot's chats pick the new text up on their next turn.
+
+Path: `id` a Bot id.
+
+Request: as `PUT /v1/bot/memory`.
+
+Response: `200` the memory view.
+
+Errors:
+
+- `400`, `409`, `500` as `PUT /v1/bot/memory`
+- `404` bot not found
+
+Events: `bot.changed`.
+
+### POST /v1/bots/{id}/memory/changes/{change}/undo
+
+Auth: any key
+Effect: `POST /v1/bot/memory/changes/{id}/undo` for this Bot's change log.
+
+Path: `id` a Bot id; `change` a change id from that Bot's `changes`.
+
+Request: no body.
+
+Response: `200` the memory view.
+
+Errors:
+
+- `404` bot not found, or change not found
+- `409`, `500` as `POST /v1/bot/memory/changes/{id}/undo`
 
 Events: `bot.changed` on success.
 
@@ -569,7 +786,7 @@ Events: `sessions.changed` and `bot.changed` on success.
 ### POST /v1/bot/tasks
 
 Auth: any key
-Effect: Creates a hidden background task, records it, and starts it. The task uses the Bot's task model when one is pinned, otherwise the Bot model, otherwise Core's default model resolution. The response is sent while `status` is still `queued`; the run then moves it to `running`. Creates the main chat first when it does not exist yet. When it settles, its outcome is reported once as a Bot turn in `source_session_id` (or the current main chat when that chat is gone); `report: true` on the task marks this, and `delivered` is set once the report turn is admitted.
+Effect: Creates a hidden background task, records it, and starts it. The task uses the primary's task model when one is pinned, otherwise its Bot model, otherwise Core's default model resolution (a `SourceSessionID` of a project lead's chat uses that lead's models first). The response is sent while `status` is still `queued`; the run then moves it to `running`. Creates the main chat first when it does not exist yet. When it settles, its outcome is reported once as a Bot turn in `source_session_id` (or the current main chat when that chat is gone); `report: true` on the task marks this, and `delivered` is set once the report turn is admitted.
 
 Request:
 
@@ -759,7 +976,7 @@ Events: `bot.changed`.
 ### GET /v1/bot/channels
 
 Auth: admin
-Effect: Lists every channel kind, configured or not, plus the global display settings and each kind's display view. Changes nothing. While a Feishu scan is running, poll this route: the scan does not emit an event.
+Effect: Lists every channel kind, configured or not (the primary's instance of each), every channel instance, plus the global display settings and each display view. Changes nothing. While a Feishu scan is running, poll this route: the scan does not emit an event.
 
 Request: no body.
 
@@ -860,7 +1077,8 @@ Response: `200`
     "configured": false,
     "enabled": false,
     "owner_bound": false
-  }
+  },
+  "instances": []
 }
 ```
 
@@ -904,7 +1122,7 @@ Events: none.
 ### PUT /v1/bot/channels/{kind}
 
 Auth: admin
-Effect: Sets up a kind that is not configured yet, switches a configured kind on or off, or replaces that kind's display override. A setup and a display change cannot be in the same body. The display override applies whether or not the kind is configured, and it survives deleting the credentials.
+Effect: Sets up the primary's instance of a kind that is not configured yet (creating the instance, bound to the primary), switches a configured one on or off, or replaces its display override. A setup and a display change cannot be in the same body. The display override applies whether or not the kind is configured, and it survives deleting the credentials.
 
 Path: `kind` is `feishu` or `discord`.
 
@@ -980,6 +1198,8 @@ Errors:
 - `400` Discord rejected this token: `<reason>`
 - `409` a Feishu bot is already connected; disconnect it first
 - `409` a Discord bot is already connected; disconnect it first
+- `409` another channel instance already uses this Feishu app
+- `409` another channel instance already uses this Discord bot
 - `500` a claim code could not be created, the credentials or the display could not be saved, or the switch failed. If the display was saved and the switch then failed, the new display is already in place.
 
 Events: none.
@@ -987,7 +1207,7 @@ Events: none.
 ### DELETE /v1/bot/channels/{kind}
 
 Auth: admin
-Effect: Disconnects that kind and deletes its stored credentials. The app or bot on Feishu, Lark, or Discord is left in place. A Feishu scan in progress is cancelled. The kind's display override is kept.
+Effect: Disconnects the primary's instance of that kind, deletes its stored credentials and removes the instance. The primary keeps its channel chat of that kind: an app set up again continues it, and a turn running there finishes with its answer kept in the chat. The app or bot on Feishu, Lark, or Discord is left in place. A Feishu scan in progress is cancelled. The display override is kept.
 
 Path: `kind` is `feishu` or `discord`.
 
@@ -1005,7 +1225,7 @@ Events: none.
 ### POST /v1/bot/channels/{kind}/registration
 
 Auth: admin
-Effect: Starts Feishu or Lark scan-to-create. Any scan already in progress is cancelled and replaced. The new app uses the Bot's saved name, or `Gyres Bot` when the name is empty, and the description `Your persistent local assistant.` (not the Bot profile description). The owner can edit that name and description on the scan page. On success the scanning user is the owner, `configured` becomes true, and `registration` disappears. Poll `GET /v1/bot/channels` for the link and the result. Discord has no scan.
+Effect: Starts Feishu or Lark scan-to-create for the primary's Feishu instance, creating the instance (bound to the primary) when there is none. Any scan already in progress on that instance is cancelled and replaced. The new app uses the instance's Bot's saved name, or `Gyres Bot` when the name is empty, and the description `Your persistent local assistant.` (not the Bot profile description). The owner can edit that name and description on the scan page. On success the scanning user is the owner, `configured` becomes true, and `registration` disappears. Poll `GET /v1/bot/channels` for the link and the result. Discord has no scan.
 
 Path: `kind` is `feishu` for this flow. `discord` is rejected.
 
@@ -1053,5 +1273,151 @@ Errors:
 
 - `404` unknown channel
 - `404` no registration flow for this channel
+
+Events: none.
+
+### GET /v1/bot/channel-instances
+
+Auth: admin
+Effect: Lists every channel instance, in the order they were created. Changes nothing.
+
+Request: no body.
+
+Response: `200` `{"instances": [...]}`, each element the same object as in `instances` of `GET /v1/bot/channels`.
+
+Errors: none.
+
+Events: none.
+
+### POST /v1/bot/channel-instances
+
+Auth: admin
+Effect: Creates a channel instance that is not set up yet, bound to a Bot. Set it up afterwards with `PUT /v1/bot/channel-instances/{id}` (the same bodies as `PUT /v1/bot/channels/{kind}`) or, for Feishu, with its registration route.
+
+Request:
+
+```json
+{"kind": "feishu", "bot_id": "bot-9d2e4c61a0b3f785"}
+```
+
+`bot_id` may be omitted: the instance talks to the primary.
+
+Response: `201` the instance object, `configured` false.
+
+```json
+{
+  "id": "feishu-1a2b3c4d",
+  "kind": "feishu",
+  "bot_id": "bot-9d2e4c61a0b3f785",
+  "configured": false,
+  "enabled": false,
+  "owner_bound": false
+}
+```
+
+The example omits `display`.
+
+Errors:
+
+- `400` invalid channel instance request
+- `400` unknown channel (the kind)
+- `404` bot not found
+- `409` this Bot already has an app of this kind
+- `500` the channel list cannot be read or saved
+
+Events: none.
+
+### GET /v1/bot/channel-instances/{id}
+
+Auth: admin
+Effect: Returns one instance. Changes nothing.
+
+Request: no body.
+
+Response: `200` the instance object.
+
+Errors:
+
+- `404` unknown channel instance
+
+Events: none.
+
+### PUT /v1/bot/channel-instances/{id}
+
+Auth: admin
+Effect: As `PUT /v1/bot/channels/{kind}`, for this instance: sets it up while it is not configured, switches it on or off, or replaces its display override.
+
+Request: the same bodies as `PUT /v1/bot/channels/{kind}`, for the instance's kind.
+
+Response: `200` the instance object.
+
+Errors: as `PUT /v1/bot/channels/{kind}`, and `404` unknown channel instance.
+
+Events: none.
+
+### DELETE /v1/bot/channel-instances/{id}
+
+Auth: admin
+Effect: Disconnects the instance, deletes its stored credentials and removes it from the list. Its Bot keeps its channel chat of that kind: a later app of the kind for that Bot continues it, and a turn running there finishes with its answer kept in the chat. The app or bot on the platform is left in place. A Feishu scan in progress is cancelled.
+
+Request: no body.
+
+Response: `200` the kind's object with `configured` false (no `id`).
+
+Errors:
+
+- `404` unknown channel instance
+- `500` the credentials or the channel list could not be saved
+
+Events: none.
+
+### PUT /v1/bot/channel-instances/{id}/bot
+
+Auth: admin
+Effect: Binds the instance to another Bot. Its running turn stops and the messages waiting behind it are dropped; the earlier Bot keeps its channel chat, set aside; the new Bot's channel chat starts with the next message. Binding to the Bot it already talks to changes nothing.
+
+Request:
+
+```json
+{"bot_id": "bot-9d2e4c61a0b3f785"}
+```
+
+An empty `bot_id` is the primary.
+
+Response: `200` the instance object.
+
+Errors:
+
+- `400` invalid binding request
+- `404` unknown channel instance
+- `404` bot not found
+- `409` this Bot already has an app of this kind
+- `500` the channel list could not be saved
+
+Events: none.
+
+### POST /v1/bot/channel-instances/{id}/registration
+
+Auth: admin
+Effect: As `POST /v1/bot/channels/{kind}/registration`, for this Feishu instance. The new app is named after the instance's Bot.
+
+Request: no body.
+
+Response: `202` the instance object.
+
+Errors: as `POST /v1/bot/channels/{kind}/registration`, and `404` unknown channel instance.
+
+Events: none.
+
+### DELETE /v1/bot/channel-instances/{id}/registration
+
+Auth: admin
+Effect: As `DELETE /v1/bot/channels/{kind}/registration`, for this instance.
+
+Request: no body.
+
+Response: `200` the instance object, with no `registration`.
+
+Errors: `404` unknown channel instance, `404` no registration flow for this channel.
 
 Events: none.

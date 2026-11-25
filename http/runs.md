@@ -661,7 +661,7 @@ Request:
 - `provider_id` and `model` (strings, optional). Omit both to use this conversation's model, then the settings default, then the first available model. If either is sent, that pair is used as given. A conversation whose saved model is no longer available fails until another model is chosen.
 - `reasoning_effort` and `service_tier` (strings, optional). Empty means the model's default. `service_tier` applies only to Codex: it is rejected for Grok, pi, Claude and provider models, and must be one Codex offers (`default` is accepted). For a provider model, a `reasoning_effort` not among its `reasoning_efforts` is dropped and the turn runs on the model's default.
 - `cwd` (string, optional) is the working directory for this turn. Empty uses the conversation's workspace.
-- `system_prompt` (string, optional) replaces the default style for a provider model. A blank value keeps the default. A conversation that runs as the Bot ignores it: the pinned chats and the supervisor, and since #2198, once the Bot is configured (`GET /v1/bot` `configured`, #2209), every top-level conversation on Gyres' own models. Otherwise it applies: to every other conversation while the Bot is not configured, and always to a conversation the Bot opened for a task and to a subagent's. Codex, Grok, pi and Claude reject a non-empty value.
+- `system_prompt` (string, optional) replaces the default style for a provider model. A blank value keeps the default. A conversation that runs as a Bot ignores it: the pinned chats, the chats `/new` set aside (#2481) and their lanes, the supervisor and the specialists' chats. Every other conversation applies it, whether the Bot is configured or not (#2477): plain conversations, a conversation the Bot opened for a task and a subagent's. Codex, Grok, pi and Claude reject a non-empty value.
 - `context_settings` (object, optional) is rejected for Codex, Grok, pi and Claude. For a provider model, `context_window` is an integer from 4096 to 10000000. `output_reserve`, `keep_recent_tokens`, `summary_max_tokens` and `threshold_tokens` are optional integers; omitted or 0 uses 4096, 20000, 2048, and `context_window - output_reserve`. The summary must fit in the output reserve, recent messages must fit under the threshold, and the threshold must leave the output reserve inside the window.
 - `max_turns` (integer, optional) caps steps of this task. When a global cap is enabled, a missing or higher value is lowered to that cap. A lower value is kept.
 - `idempotency_key` (string, optional) is chosen by the client, one per send, at most 128 bytes; Core keeps it in the turn's task record. When the conversation's latest task record carries the same key and was updated within the last 10 minutes, nothing new starts (the body is still decoded, so invalid JSON is `400`, but only the key is compared, not the prompt or other fields): while that run is live the response is its run stream (`200`, from the snapshot, as for the first POST); otherwise `409` `duplicate_request` (below). A different key, or none, is a new send. The key is ignored when task records are not kept. Retry a POST whose connection failed before any answer with the same key.
@@ -1172,3 +1172,29 @@ Errors:
 - `503` ask_user_question is unavailable
 
 Events: none.
+
+### POST /v1/sessions/{id}/user-questions/{qid}/activity
+
+Auth: any key
+Effect: Tells Core the owner is typing an answer (a free-text field, or the chat composer), so the batch is not auto-answered under them. The batch `deadline` moves to 30 seconds from now, never earlier than it was and never later than 10 minutes after `created` (or the batch's first deadline, if that is later). Clients send it while typing, at most every few seconds. Once the owner stops, the first options are taken when the deadline passes.
+
+Path: `id` conversation handle. `qid` the batch `id` from `GET …/user-questions`.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{"deadline": "2026-10-14T12:01:30.000000000Z"}
+```
+
+- `deadline` the batch's deadline after this report (UTC).
+
+Errors:
+
+- `404` question does not belong to this session
+- `409` question not found
+- `409` question already resolved
+- `503` ask_user_question is unavailable
+
+Events: run stream `user_question` again, with the moved `deadline`, when it moved.

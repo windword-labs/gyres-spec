@@ -112,7 +112,7 @@ Response: `200`
 - Each available folder in `status.directories` (not the library) has `git` when it is inside a git work tree: `branch` (`""` on a detached HEAD), `dirty` (changed and untracked paths, `0` when clean), `ahead` and `behind` (commits against the branch's upstream as last fetched; `0` without an upstream). Core reads it with one local `git status`, never fetches, waits at most 2 seconds per folder and reuses an answer for 10 seconds, so `ahead`/`behind` lag until something fetches. `git` is absent when the folder is not in a repository, git is not installed, or git did not answer in time. Only this route fills it.
 
 - `projects` is the saved projects in the order they were saved, each with `status`. An empty Core returns `[]`.
-- Each project may also carry its Bot fields, each present only when set: `coordinator_session_id` (the project's current Coordinator chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the owner hid the project from the main project list; a client shows it in a folded hidden group with its conversations; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on; absent: the Bot model).
+- Each project may also carry its Bot fields, each present only when set: `lead_bot_id` (the project's lead Bot, a specialist bound to the project, see the Bot list in Bot), `coordinator_session_id` (the project's current Coordinator chat: its lead Bot's main chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the owner hid the project from the main project list; a client shows it in a folded hidden group with its conversations; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on: its lead Bot's Bot model; absent: the primary's Bot model).
 - `host_os` is the operating system of the machine running Core, such as `darwin`, `linux`, or `windows`.
 
 Errors:
@@ -141,7 +141,7 @@ Request:
 - `folderless` (boolean) true creates a project with no folders. `primary` and every entry of `roots` must then be empty or absent. Core sets `primary` and `roots` to the new library path in the response.
 - Without `folderless`, `primary` (string) is the main directory. `roots` (array of strings) lists additional directories. Each path is trimmed, then `.`, `..`, and extra separators are removed. It must be an absolute directory on the machine running Core and must be listable. The same path is kept once. At most 32 directories, including the primary.
 - A project may be saved again later under a name it already has even when another project also has that name. Any other save that matches another project's name is refused.
-- Optional Bot fields: `bot_hidden` (boolean) and the Coordinator model `coordinator_provider_id` with `coordinator_model` (strings, sent together; both `""` clear it so the Coordinator follows the Bot model) and `coordinator_reasoning_effort` (string, needs a model). An external agent cannot be the Coordinator model. `coordinator_session_id` is set by Core only and ignored here.
+- Optional Bot fields: `bot_hidden` (boolean) and the Coordinator model `coordinator_provider_id` with `coordinator_model` (strings, sent together; both `""` clear it so the Coordinator follows the Bot model) and `coordinator_reasoning_effort` (string, needs a model). An external agent cannot be the Coordinator model. With a lead Bot it sets the lead's Bot model. `lead_bot_id` (string): a specialist bound to this project becomes its lead, `""` leaves it without one (its unclaimed reports go to the primary); refused on create. `coordinator_session_id` is set by Core only and ignored here.
 
 Response: `200`
 
@@ -158,6 +158,7 @@ Errors:
 - `400` at most 32 project directories
 - `400` coordinator_provider_id and coordinator_model must be set together
 - `400` coordinator_reasoning_effort needs a model
+- `400` `lead_bot_id` is not a specialist bound to this project, or sent on create
 - `400` Bot conversations run on a configured provider, not an external agent
 - `400` the Coordinator model is not an enabled provider's active model (the message says why)
 - `400` the project could not be saved (the message says why)
@@ -200,7 +201,7 @@ Events: `bot.changed`; `session.settings` for the Bot's chats when the Coordinat
 ### DELETE /v1/projects/{project}
 
 Auth: any key
-Effect: Forgets the registration. Directories, library files, instructions, project memory, and conversation bindings are left in place. The project's Coordinator chats stay Bot chats (listed in `GET /v1/bot`'s `chats`). A later create with the same primary path, or the same name for a project without folders, can take this id again, and its Coordinator chat with it.
+Effect: Forgets the registration. Directories, library files, instructions, project memory, and conversation bindings are left in place. The project's Coordinator chats stay Bot chats (listed in `GET /v1/bot`'s `chats`), and its Bots stay bound to its id, the lead included, no longer leading. A later create with the same primary path, or the same name for a project without folders, can take this id again, and its Coordinator chat with it (its Bot leads again).
 
 Path: `project` project id.
 
@@ -222,7 +223,7 @@ Events: `bot.changed`.
 ### POST /v1/projects/{project}/coordinator
 
 Auth: any key
-Effect: Returns the project's Coordinator chat, creating it on first use. A Coordinator chat is a Bot chat bound to the project's workspace: it runs on the project's Coordinator model or the Bot model (never an external agent), gets the Bot's prompt and tools together with the project's instructions, memory, library and skills, and is not listed by `GET /v1/sessions`. The saved chat is kept while its conversation exists and is bound to the project; otherwise a Coordinator chat this project had before is taken back, or a new one is created and saved as the project's `coordinator_session_id`. Calling it again returns the same chat. `POST /v1/bot/chats/{id}/new` replaces it with a fresh one.
+Effect: Returns the project's Coordinator chat, creating it on first use. A Coordinator chat is the main chat of the project's lead Bot (see the Bot list in Bot), bound to the project's workspace: it runs on the lead's Bot model (never an external agent), gets the lead's prompt and the Bot tools together with the project's instructions, memory, library and skills, and is not listed by `GET /v1/sessions`. With a lead, its main chat is returned (a fresh one when it was deleted or archived). Without one, a specialist is created, bound to the project and named its lead: named after the project, with the primary's description and a copy of its memory file and the project's Coordinator model; its main chat is the saved chat while its conversation exists and is bound to the project, otherwise a Coordinator chat this project had before, otherwise a new one, saved as the project's `coordinator_session_id`. Calling it again returns the same chat. `POST /v1/bot/chats/{id}/new` replaces it with a fresh one.
 
 Path: `project` project id.
 
@@ -239,6 +240,7 @@ Errors:
 - `404` project not found
 - `409` the project's primary directory is missing or cannot be used (the message says which)
 - `409` the project's Coordinator chat changed meanwhile; try again
+- `500` the Bot list cannot be used; nothing is created
 - `500` the chat could not be created or saved
 - `503` the Bot is not available
 
@@ -407,10 +409,10 @@ Response: `200`
 - `library` is the project's library path. `library_files` are relative to it, with `/`.
 - `parent_id`, present on a child, is its parent's `id`. Items nest one level only.
 - `stored_status` is the status last given by hand or by the Coordinator: `queued`, `in_progress`, `for_review` (waiting to be merged), `done` or `archived`. `status_at` is when a status was last given, also when the same one is given again; `linked_at` when a link was last added. `completed_at` is present while the stored status is `done` or `archived` after `done`.
-- `effective_status` is derived from the linked work, with no review step, in this order: `archived` and `done` as stored; `done` (`done_reason` `merged`) when every linked PR is `merged` and no linked work runs; `in_progress` while linked work is queued, running or paused, waits on an approval (a worker's `waiting_approval`, or its agenda item waits for the owner), or failed (the worker's `status` says so); `for_review` (`review_reason` `pr`, waiting to be merged) when a linked PR is `open`; `done` (`done_reason` `completed`) when linked work completed; otherwise the stored status. Finished or failed work and PRs (merged ones included) count only when they are newer than `status_at` or were linked since then (links sent again unchanged do not count), so an item whose status was set by hand, for example sent back to `queued`, stays there until something new arrives. Library files do not move the status.
+- `effective_status` is derived from the linked work, with no review step, in this order: `archived` and `done` as stored; `done` (`done_reason` `merged`) when every linked PR is `merged` and no linked work runs; `in_progress` while linked work is queued, running or paused, waits on an approval (a worker's `waiting_approval`, or its agenda item waits for the owner), or failed (the worker's `status` says so); `for_review` (`review_reason` `pr`, waiting to be merged) when a linked PR is `open`; `in_progress` (`review_reason` `pr_closed`) when a linked PR is `closed` without merging and none is `open` (also when another one is `merged`); `done` (`done_reason` `completed`) when linked work completed; otherwise the stored status. Finished or failed work and PRs (merged ones included) count only when they are newer than `status_at` or were linked since then (links sent again unchanged do not count), so an item whose status was set by hand, for example sent back to `queued`, stays there until something new arrives. Library files do not move the status.
 - A parent with children: `children_total` and `children_done` count its children that are not archived. It is `done` when every child is and a child got its status, a link or finished work after the parent's `status_at` (a parent sent back after its children finished keeps its stored status), and otherwise, unless its stored status is `done` or `archived`, takes the most pressing of its own effective status and its children's (`for_review`, then `in_progress`, then `queued`, then `done`; with the child's `review_reason`).
 - `workers` has one row per linked task Core still knows, shaped as in `GET /v1/projects/{project}/activity`. A standalone Task between attempts has no `session_id` and the status of its last outcome.
-- PR states are what was last sent; Core does not look them up.
+- PR states are what was last sent, or what Core found on GitHub: on a read, PRs stored as `open` are looked up again in the background (a short shared cache; never PRs stored `merged` or `closed`) with the host's own GitHub access (a logged-in `gh` CLI, else `GITHUB_TOKEN` / `GH_TOKEN`, else unauthenticated for public repositories; `github.com` or a GitHub Enterprise host `gh` is logged into). A merge or close found is published as `project_list.changed` and written back on the next read, as if the URL had been linked again with that state. The read never waits for GitHub; a failed lookup keeps the stored state.
 
 Errors:
 
