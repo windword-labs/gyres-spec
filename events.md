@@ -249,7 +249,7 @@ Refetch: `GET /v1/sessions/{id}/run-state` and `GET /v1/sessions/{id}/pending-me
 
 ### bot.changed
 
-The Bot's saved state changed (profile, models, chats, tasks, supervision agenda), its memory text or memory change log changed, a Bot chat started or finished a run, or a supervisor run started or ended. It is also sent when the Bot list changes: a specialist Bot was created, saved or deleted, or a specialist's memory changed. Optional: listed in `ready.publishes`.
+The Bot's saved state changed (profile, models, chats, tasks, supervision agenda), its memory text or memory change log changed, a Bot chat started or finished a run or was marked seen (a Bot's `unseen`), or a supervisor run started or ended. It is also sent when the Bot list changes: a specialist Bot was created, saved or deleted, or a specialist's memory changed. Optional: listed in `ready.publishes`.
 
 ```json
 { "type": "bot.changed" }

@@ -642,7 +642,7 @@ Errors:
 - `404` session not found
 - `500` the seen mark could not be saved
 
-Events: `sessions.changed` when `changed` is true.
+Events: `sessions.changed` when `changed` is true, and also `bot.changed` when the conversation is a Bot chat (a Bot's `unseen` reads its main chat's mark).
 
 ### POST /v1/sessions/seen
 
@@ -666,7 +666,7 @@ Errors:
 
 - `500` a seen mark or a result could not be saved; marks written before the failure stay
 
-Events: `sessions.changed` for each conversation in `sessions`; `schedules.changed` when a result was marked read.
+Events: `sessions.changed` for each conversation in `sessions`, and `bot.changed` for each of them that is a Bot chat; `schedules.changed` when a result was marked read.
 
 ### POST /v1/sessions/{id}/fork
 
@@ -810,7 +810,7 @@ Response: `200`
 
 - `settings` is `null` when no model is saved. A title with no model still returns `null`. When present, `provider_id`, `model`, `reasoning_effort`, `speed`, and `updated_at` are always included. Empty `reasoning_effort` or `speed` means the model's default. `updated_by` is the id of the access key that saved the choice, never the secret, and is omitted when unset. `title` is omitted when unset. `PUT` settings does not change `title`.
 - `effective` is the saved choice, else the Settings default, else the first available model. A saved external-agent model on a Bot conversation counts as unset. The four fields are always present; `reasoning_effort` and `speed` may be `""`.
-- In a Bot chat (main chat, side chat or channel chat) the conversation has no model of its own: `settings` is the Bot model (or `null` when unset), `effective` is the Bot model, else the Settings default, else the first available model, and `bot` is `{"scope": "bot", "bot_model", "task_model"}`, each model `{provider_id, model, reasoning_effort, speed}` or `null` when unset. `bot` is omitted outside Bot chats. In a project's Coordinator chat (or a chat branched from or set aside by one) `settings` and `effective` are the project's Coordinator model when it has one, and `bot` is `{"scope": "project", "project_id", "project_model", "bot_model", "task_model"}` with `project_model` `null` while the chat follows the Bot model.
+- In a Bot chat (main chat, side chat or channel chat) the conversation has no model of its own: it runs on the model of the chat's own Bot. `settings` is that Bot's model (or `null` when unset), `effective` is the Bot's model, else the Settings default, else the first available model, and `bot` is `{"scope": "bot", "bot_id", "bot_model", "task_model", "follows_default"}`: `bot_id` is the chat's Bot (an `id` from `GET /v1/bots`), each model `{provider_id, model, reasoning_effort, speed}` or `null` when unset, and `follows_default` is `true` while the Bot has no model of its own, so the chat follows the Settings default (and moves with it). A Bot never runs on another Bot's model: a specialist without a model follows the Settings default, not the primary's model. `bot` is omitted outside Bot chats. In a project's Coordinator chat (or a chat branched from or set aside by one) the chat's Bot is the project's lead: `settings` and `effective` are the project's Coordinator model, which is the lead's Bot model, when it has one, and `bot` is `{"scope": "project", "project_id", "project_model", "bot_id", "bot_model", "task_model", "follows_default"}` with `project_model` `null` while the chat follows the Settings default.
 
 Errors:
 
@@ -837,9 +837,9 @@ Request:
 }
 ```
 
-- `provider_id` and `model` (strings) are required and must name a model that is available now.
+- `provider_id` and `model` (strings) are required and must name a model that is available now; in a Bot chat both `""` clear the target instead (below).
 - `reasoning_effort` and `speed` (strings, optional). A non-empty `reasoning_effort` must be one of that model's `reasoning_efforts` (`GET /v1/models`); for a provider model those are the levels its model list reported, sent as Chat Completions `reasoning_effort` or Responses `reasoning.effort`, and `""` sends none. `speed` must be empty for a provider model. For an external agent, `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
-- `target` (string, optional) applies only in a pinned Bot chat (the main chat, a channel's current chat, a Project's current Coordinator and their lanes; since #2198 a chat `/new` set aside, a side or parallel chat has its own setting like any conversation; since #2477 a side or parallel chat of no Bot chat is a plain conversation, and a chat `/new` set aside stays its Bot's, #2481): `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). In a project's Coordinator chat the default is `"project"`: it sets that project's Coordinator model (`provider_id` and `model` both `""` clear it, so its Coordinator chats follow the Bot model). Outside Bot chats it is ignored.
+- `target` (string, optional) applies only in a pinned Bot chat (the main chat, a channel's current chat, a Project's current Coordinator and their lanes; since #2198 a chat `/new` set aside, a side or parallel chat has its own setting like any conversation; since #2477 a side or parallel chat of no Bot chat is a plain conversation, and a chat `/new` set aside stays its Bot's, #2481): it always changes the chat's own Bot (in a project's Coordinator chat, the project's lead), never another Bot. `"bot"` (default) sets that Bot's model, which every chat of that Bot uses from its next turn; `"bot"` with `provider_id` and `model` both `""` clears it and its reasoning effort, so the Bot follows the Settings default. `"task"` sets only the Bot's task model, and `"task"` with both `""` clears it (tasks follow the Bot's model). In a project's Coordinator chat the default is `"project"`: it sets that project's Coordinator model, the lead's Bot model (both `""` clear it, so its Coordinator chats follow the Settings default). A cleared choice with a non-empty `reasoning_effort`, or only one of `provider_id` and `model`, is `400`. Outside Bot chats it is ignored.
 - The body is at most 4096 bytes. Other fields are ignored.
 
 A conversation an external agent owns can stay on that agent. Pointing it at a provider, or at a different external agent, is refused. A Bot conversation cannot be pointed at an external agent (`400`). A plain conversation follows the rule above whether or not it ran on Gyres' own models (#2477; from #2198 until then, one that ran as the Bot answered `409`).
@@ -852,6 +852,7 @@ Errors:
 - `400` invalid json
 - `400` `target must be "bot" or "task" (or "project" in a Project's Coordinator chat)`
 - `400` provider_id and model are required
+- `400` reasoning_effort needs a model
 - `400` unknown or unavailable model
 - `400` speed currently requires an external agent model
 - `400` unsupported reasoning_effort for this model

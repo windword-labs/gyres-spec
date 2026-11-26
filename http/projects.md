@@ -112,7 +112,7 @@ Response: `200`
 - Each available folder in `status.directories` (not the library) has `git` when it is inside a git work tree: `branch` (`""` on a detached HEAD), `dirty` (changed and untracked paths, `0` when clean), `ahead` and `behind` (commits against the branch's upstream as last fetched; `0` without an upstream). Core reads it with one local `git status`, never fetches, waits at most 2 seconds per folder and reuses an answer for 10 seconds, so `ahead`/`behind` lag until something fetches. `git` is absent when the folder is not in a repository, git is not installed, or git did not answer in time. Only this route fills it.
 
 - `projects` is the saved projects in the order they were saved, each with `status`. An empty Core returns `[]`.
-- Each project may also carry its Bot fields, each present only when set: `lead_bot_id` (the project's lead Bot, a specialist bound to the project, see the Bot list in Bot), `coordinator_session_id` (the project's current Coordinator chat: its lead Bot's main chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the owner hid the project from the main project list; a client shows it in a folded hidden group with its conversations; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on: its lead Bot's Bot model; absent: the primary's Bot model).
+- Each project may also carry its Bot fields, each present only when set: `lead_bot_id` (the project's lead Bot, a specialist bound to the project, see the Bot list in Bot), `coordinator_session_id` (the project's current Coordinator chat: its lead Bot's main chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the owner hid the project from the main project list; a client shows it in a folded hidden group with its conversations; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on: its lead Bot's Bot model; absent: the Settings default).
 - `host_os` is the operating system of the machine running Core, such as `darwin`, `linux`, or `windows`.
 
 Errors:
@@ -158,7 +158,7 @@ Errors:
 - `400` at most 32 project directories
 - `400` coordinator_provider_id and coordinator_model must be set together
 - `400` coordinator_reasoning_effort needs a model
-- `400` `lead_bot_id` is not a specialist bound to this project, or sent on create
+- `400` `lead_bot_id` is not a specialist bound to this project, or sent on create, or names a Bot with tools turned off (`tools_off`, see Bot)
 - `400` Bot conversations run on a configured provider, not an external agent
 - `400` the Coordinator model is not an enabled provider's active model (the message says why)
 - `400` the project could not be saved (the message says why)

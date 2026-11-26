@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.131.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.132.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -2199,7 +2199,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `name` (string) is `Gyres Bot` until a save. A save stores the trimmed name.
 - `description` (string) is built-in delegation guidance until the owner saves one. A stored description that is empty, or exactly `Your persistent local assistant.`, is filled with that guidance once, before any request. A save stores the trimmed description, including `""`, and a later empty save stays empty.
 - `main_session_id` (string) is the current main chat, `""` while there is none. Saving the profile (`PUT /v1/bot`) creates it, and so does the first write that needs it (a side chat, a background task, a delivered result, a channel message). `GET /v1/bot` never creates it. Once `configured` is true there is always one. A main chat that was deleted or archived is replaced by a fresh one the same way; an archived one stays archived.
-- `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the model of the main chat and each channel kind's current chat (including chats `/new` creates) and of the side chats branched from them. Both `""` means the Settings default, then the first model Core can use. Their own saved model is not used; `PUT /v1/sessions/{id}/settings` in one of them sets this pair. Any other conversation, a chat `/new` set aside included, runs on its own setting (see `unified_chats`). A project's Coordinator chats (with `project_id`) run on that project's Coordinator model, its lead Bot's Bot model (`coordinator_model` on the project), when set, else on this pair; `PUT /v1/sessions/{id}/settings` there sets the project's Coordinator model unless its `target` is `bot` or `task`, and an empty choice clears it. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
+- `bot_provider_id` and `bot_model` (strings, always present) are the Bot model: the model of the main chat and each channel kind's current chat (including chats `/new` creates) and of the side chats branched from them. Both `""` means the Settings default, then the first model Core can use. Their own saved model is not used; `PUT /v1/sessions/{id}/settings` in one of them sets this pair. Any other conversation, a chat `/new` set aside included, runs on its own setting (see `unified_chats`). A project's Coordinator chats (with `project_id`) run on that project's Coordinator model, its lead Bot's Bot model (`coordinator_model` on the project), when set, else on the Settings default, never on this pair; `PUT /v1/sessions/{id}/settings` there changes the lead's models, and an empty choice clears them. An external-agent pair is ignored as if it were unset. The first Core start after Bot models were merged fills an empty pair once from the main chat's saved model, else from the old `channel_provider_id`/`channel_model`, which are then dropped.
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, always present) are the reasoning effort of the Bot model and of the task model. `""` is the model's default (no effort is sent). A task without a task model takes the Bot model with its effort. The first Core start after efforts were added copies the main chat's saved effort to an empty `bot_reasoning_effort` once, when that saved setting names the Bot model.
 - `task_provider_id` and `task_model` (strings, always present) choose the model for a new background task. Both `""` means the Bot model, then Core's default model resolution. A non-empty pair is pinned for every new task: the fallback chain is not used. A pair that names an external agent is ignored at task creation as if it were unset.
 - `system_prompt` (string) is the prompt every conversation that runs as the Bot receives (the pinned chats, the chats `/new` set aside and their lanes, and the supervisor; the current Coordinator appends its section). A plain conversation never gets it, configured or not (#2477, docs/bots.md "Plain conversations"). The string is a fixed introduction, then ` Your name is <name>.` when the name is non-empty, then a space and the description when that is non-empty, then a fixed style section. Memory is not part of this string.
@@ -2212,6 +2212,8 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `agenda` (array, read only) is the Bot's supervision agenda: open items first, then settled ones, each group most recently updated first. See Agenda. `[]` when empty.
 - `agenda_error` (string) is present only when the stored agenda could not be read at start. `agenda` is then `[]` and the Bot cannot change the agenda until the file is repaired or removed and Core restarts. The rest of the profile is unaffected.
 - `avatar` (object): the primary's avatar, as in the Bot list. Absent while the Bot list cannot be used.
+- `tools_off` (array of strings, always present): the tool classes turned off for this Bot, as in the Bot list. Always `[]` for the primary, which cannot be restricted.
+- `unseen` (string, always present): the primary's main chat's unseen result, as in the Bot list. `""` while it has none or there is no main chat yet.
 
 A session id is UTC time `YYYY-MM-DDTHH-MM-SS`, then `_`, then a UUID. Example: `2026-10-14T12-02-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b`.
 
@@ -2221,13 +2223,19 @@ External-agent provider ids, refused on `PUT /v1/bot`, are `local-codex`, `local
 
 A Core has a list of Bots. The Bot every other section of this page describes is the **primary** Bot: it always exists, it is first in the list, and it cannot be deleted. `/v1/bot` and its sub-routes are the primary's. The other Bots are **specialists**: each has its own id, name, description (its persona), Bot model and task model, chats and memory file. A specialist's chats are omitted from `GET /v1/sessions` without `all=1` and from the archived list without `all=1`, as the primary's are; `GET /v1/sessions?all=1` lists them with `bot_id` and their role (see the sessions reference, "Unified list"), and `GET /v1/bots/{id}` keeps listing them in `chats`. A specialist's main chat branches side chats (`POST /v1/bot/chats` with `from` naming an entry of it; the record is in the specialist's `chats`), and `POST /v1/bot/chats/{id}/new` on it gives the specialist a fresh main chat; the chat set aside stays the specialist's, `ended`, on the model it ran on as its own setting. `PATCH` and `DELETE /v1/bot/chats/{id}` accept a specialist's side chats too. A plan may belong to a specialist (`bot_id`, see Schedules).
 
-A conversation that is a specialist's chat runs as that specialist: its prompt is a fixed introduction naming the specialist, then a space and the description when non-empty, then the fixed style section; its context carries that specialist's memory, not the primary's, and the owner memory as every conversation does; it runs on the specialist's Bot model (when unset, the primary's Bot model, then the Settings default), and `PUT /v1/sessions/{id}/settings` there sets the specialist's Bot model (with `target` `task`, its task model). It runs only on configured providers, never on an external agent. A specialist has no background tasks, agenda or supervisor of its own: those stay with the primary. A specialist may have channel apps of its own (see [Channels](#channels)); each talks to its own channel chat of that specialist. Its task model runs the tasks other Bots hand to it and, as a project's lead, the workers it starts.
+A conversation that is a specialist's chat runs as that specialist: its prompt is a fixed introduction naming the specialist, then a space and the description when non-empty, then the fixed style section; its context carries that specialist's memory, not the primary's, and the owner memory as every conversation does; it runs on the specialist's Bot model, and when that is unset on the Settings default (never on the primary's model: changing the primary's model moves no other Bot), and `PUT /v1/sessions/{id}/settings` there sets or clears the specialist's Bot model (with `target` `task`, its task model). It runs only on configured providers, never on an external agent. A specialist has no background tasks, agenda or supervisor of its own: those stay with the primary. A specialist may have channel apps of its own (see [Channels](#channels)); each talks to its own channel chat of that specialist. Its task model runs the tasks other Bots hand to it and, as a project's lead, the workers it starts.
 
 **Project binding.** A specialist works in at most one project (`project_id`); a project may have several Bots. The primary works outside projects and refuses a binding. A bound specialist's main chat is bound to the project like its Coordinator chat: the project's directories, instructions, memory, library and skills, and the project's list (`project_list`); nothing of other projects. `PUT /v1/bots/{id}` with another `project_id` moves the main chat to that project in place: the same conversation, with a fresh context from its next turn. Its workspace cannot be changed with `PUT /v1/sessions/{id}/workspace` (`409`).
 
-**Project lead.** A project names at most one lead Bot (`lead_bot_id` on the project, see Projects), a specialist bound to it. The lead's main chat is the project's Coordinator chat: it keeps the project's `coordinator_session_id`, is listed with `GET /v1/bot`'s `chats` and `projects` and with the role `coordinator` in `GET /v1/sessions?all=1`, and its side chats are branched as before. The lead runs with the primary's introduction rewritten for a lead, its own name and description, the Coordinator section in its main chat, and the background tasks, radar and agenda tools; its tasks and agenda items are the Core's one list (`GET /v1/bot`'s `tasks` and `agenda`), they report back to the chat that started them and run on the lead's task model, else the primary's task model, else the lead's Bot model, else the primary's. A project's reports and notices that no chat claims (an agenda item of the project, a project Task's notice, a report whose requesting conversation is gone) go to its lead's main chat, and to the primary's main chat when it has none. A bound specialist that does not lead has no background tasks; other Bots can hand it tasks.
+**Project lead.** A project names at most one lead Bot (`lead_bot_id` on the project, see Projects), a specialist bound to it. The lead's main chat is the project's Coordinator chat: it keeps the project's `coordinator_session_id`, is listed with `GET /v1/bot`'s `chats` and `projects` and with the role `coordinator` in `GET /v1/sessions?all=1`, and its side chats are branched as before. The lead runs with the primary's introduction rewritten for a lead, its own name and description, the Coordinator section in its main chat, and the background tasks, radar and agenda tools; its tasks and agenda items are the Core's one list (`GET /v1/bot`'s `tasks` and `agenda`), they report back to the chat that started them and run on the lead's task model, else the lead's Bot model, else the Settings default; the primary's models are not a layer. A project's reports and notices that no chat claims (an agenda item of the project, a project Task's notice, a report whose requesting conversation is gone) go to its lead's main chat, and to the primary's main chat when it has none. A bound specialist that does not lead has no background tasks; other Bots can hand it tasks.
 
-**Tasks handed to another Bot.** The primary and a project's lead can hand a background task to another Bot of the list. Such a task is one of `GET /v1/bot`'s `tasks` with `target_bot_id`. It runs in its own hidden conversation (`session_id`), never in the target's main chat, which stays as it was: with the target's prompt, memory and model (its task model, else its Bot model, else the primary's Bot model, else the Settings default), in the target's project when it is bound (`project_id`), unattended. Its outcome is reported to the chat that handed it over; when that chat is gone, to the handing Bot's main chat, then to the lead of the project it was handed from, then to the primary's main chat. Core refuses a hand to the handing Bot itself, to a Bot already on the work's chain since the owner's message, past two hands per chain, and past three per turn.
+**Tasks handed to another Bot.** The primary and a project's lead can hand a background task to another Bot of the list. Such a task is one of `GET /v1/bot`'s `tasks` with `target_bot_id`. It runs in its own hidden conversation (`session_id`), never in the target's main chat, which stays as it was: with the target's prompt, memory and model (its task model, else its Bot model, else the Settings default), in the target's project when it is bound (`project_id`), unattended. Its outcome is reported to the chat that handed it over; when that chat is gone, to the handing Bot's main chat, then to the lead of the project it was handed from, then to the primary's main chat. Core refuses a hand to the handing Bot itself, to a Bot already on the work's chain since the owner's message, past two hands per chain, and past three per turn.
+
+**Bots the primary creates.** In a turn the owner sent in the primary's main chat, one of its side chats or one of its channel chats, the primary Bot can create a specialist and change any Bot's name, description, avatar, model and reasoning effort and project binding from the conversation (a model named in the conversation is matched against the configured providers' models; an ambiguous name is asked about, and "default" makes the Bot follow the Settings default), with the same rules as `POST /v1/bots` and `PUT /v1/bots/{id}` (the primary refuses a binding; a binding does not change while that Bot's main chat runs; a name another Bot has is refused). A request in the conversation that names a Bot by a name several Bots share is refused until the owner gives the Bot's id or renames one. A client sees such a change as it sees one made over HTTP: `bot.changed`, and `sessions.changed` for a new Bot's main chat. A new Bot's memory file may start with notes the primary handed over. Shortly after it is created, the new Bot usually posts a greeting as an assistant message in its main chat, which then is its `last_message`; Core sends `bot.changed` when that turn ends. The message that started the greeting is Core's and is not shown. Neither happens through a route, so there is nothing to call.
+
+**Bots that rename themselves.** In a turn the owner sent in a specialist's own main chat (a lead's: its project's Coordinator), one of its side chats or one of its channel chats, that specialist can change its own name and avatar from the conversation, with the rules of `PUT /v1/bots/{id}`. It cannot change its description, models, project binding, tool permissions, channels or lead status, nor another Bot. A client sees the change as one made over HTTP: `bot.changed`.
+
+**Tool permissions.** A specialist can have classes of tools turned off (`tools_off`): `files` (the local file tools and skills), `shell` (commands and code), `computer` (desktop control), `browser` (the built-in Browser), `mcp` (every other connected MCP server), `schedules` (creating and managing plans) and `subagents` (child agents). Turning `files` off turns `shell` off too. Every conversation that runs as the Bot (its main, side, channel and earlier chats, its greeting, its plan runs, tasks handed to it and their child agents) goes without those tools from its next turn on; a running turn keeps the tools it started with. With `files` off a message carrying a file, folder, host path or skill reference is refused (`400` on the turn; a channel message with a file gets the refusal back), images still go, the conversation has no skill catalogue, and a large tool output keeps only its preview. With `shell` off a wake's command pre-check is refused; a URL pre-check stays. While a Bot has any class off, its plans are its own: a standalone plan of that Bot or a follow-up in one of its chats, never another Bot's or the primary's, a Task's or an external agent's, and it manages only its own plans (listing shows all). A plan's run keeps reporting its outcome even with `schedules` off. The primary and a project's lead cannot be restricted, and a restricted Bot cannot become a lead. The primary Bot can change these from the conversation as well. While `shell` is on, the other switches limit the Bot's tools, not what a command can reach.
 
 **Coordinators migrate.** The first start of a Core with the Bot list's projects turns each project's existing Coordinator chat into a specialist bound to the project and leading it: the chat is its main chat, named after the project, with the primary's description and a copy of the primary's memory file, and the project's Coordinator model as its Bot model. A hidden project migrates as well. A project that never opened a Coordinator chat, or whose chat is gone, gets its lead from `POST /v1/projects/{project}/coordinator`, which creates one the same way.
 
@@ -2236,12 +2244,14 @@ Each Bot in the list:
 - `id` (string): `bot-` and 16 lowercase hex characters. The primary has one too; it never changes.
 - `primary` (bool): true for the first Bot only.
 - `created` (string, UTC RFC3339): when the Bot entered the list. For the primary of a Core that had a Bot before the list existed, the time the list was made.
-- `configured`, `name`, `description`, `main_session_id`, `bot_provider_id`, `bot_model`, `bot_reasoning_effort`, `task_provider_id`, `task_model`, `task_reasoning_effort`, `chats`: as in Profile. A specialist is always `configured` and always has a main chat, created with it.
+- `configured`, `name`, `description`, `main_session_id`, `bot_provider_id`, `bot_model`, `bot_reasoning_effort`, `task_provider_id`, `task_model`, `task_reasoning_effort`, `chats`: as in Profile. A specialist is always `configured` and always has a main chat, created with it. A Bot whose `bot_provider_id` and `bot_model` are `""` follows the Settings default, the primary and specialists alike; `PUT /v1/bots/{id}` with both `""` clears a Bot's model, and omitting them keeps it.
 - `project_id` (string): the project a specialist is bound to; `""` for none and always for the primary.
 - `lead_of` (string): present when the Bot is that project's lead.
 - `last_message` (string) and `last_message_at` (string, UTC RFC3339): the newest user or assistant text across the Bot's main chat and its channel chats (`channel_chats`), on one line (white space collapsed) and cut at 160 characters with `…`, and when it was written. Tool calls, tool results and Core's own notices are skipped. Both are absent while those chats have no such message. Use them for a list preview; the transcript is the source of truth.
+- `unseen` (string, always present): `""`, `result` or `failed`: the Bot's main chat's `unseen`, exactly as that conversation's row on the conversation list would show it (see the sessions reference). A lead's main chat is its project's Coordinator chat. Only the main chat counts: replies in its channel chats (read in the channel app), side chats and earlier chats do not, so opening the main chat and marking it seen (`POST /v1/sessions/{id}/seen`) always clears it. A new Bot's greeting is a reply like any other and shows as `result` until its main chat is marked seen. A scheduled result delivered into the main chat without a turn leaves no mark; the plan's own conversation carries it. `""` for a Bot without a main chat. Core sends `bot.changed` when it changes: a run of the main chat ends, or the chat is marked seen. Older Cores omit it.
 - `error` (string): present only when this Bot's stored state could not be read at start; its changes are refused until the file is repaired and Core restarts.
 - `system_prompt` (string): on `GET`, `PUT` and `POST` of one Bot only, not in the list.
+- `tools_off` (array of strings, always present): the tool classes turned off for this Bot, in the order `files`, `shell`, `computer`, `browser`, `mcp`, `schedules`, `subagents` (see Tool permissions). `[]` when none is.
 - `avatar` (object, always present): the Bot's picture, `{"set": "planets", "id": "saturn"}`. `set` is the avatar set (only `planets` exists) and `id` one of its planets: `sun`, `mercury`, `venus`, `earth`, `mars`, `jupiter`, `saturn`, `uranus`, `neptune`, `pluto`, `moon`, `comet`. Core sends only the choice: the Gyres apps draw the planet from their own built-in avatar spec, and a client without it can show the name or its own picture. A Bot that chose none gets one derived from its `id`, the same on every start, with `"default": true`; `default` is absent on a chosen avatar. Clients never compute the default themselves.
 
 ## Chats
@@ -2496,12 +2506,14 @@ Request:
 ```
 
 - `name` (string, required). Trimmed. Empty or whitespace-only is rejected. The body is one JSON object of at most 16384 bytes.
+- Bot names are unique: a name another Bot of the list already has is rejected (`409`, code `bot_name_taken`). Names compare after trimming and Unicode case folding, so `Writer`, `writer` and ` WRITER ` are the same name; scripts without case, such as Chinese, compare as written. Every Bot counts, the primary included, under the name `GET /v1/bots` shows (`Gyres Bot` before the primary's first save). Saving a Bot under its own current name, in any case, is accepted, also when Bots shared that name before this rule; such names are not changed by Core.
 - `description` (string). Trimmed. Omitted is `""` and clears a description already saved. Send the current description back when a save should keep it.
 - `task_provider_id` and `task_model` (strings). Omit both to leave the task model unchanged. Send both as `""` to clear it. Send both non-empty to pin it. Any other combination is rejected, including one empty and one non-empty. The same rule applies to `bot_provider_id` and `bot_model`.
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, optional). Omitted keeps the effort while the model stays the same and clears it when the same body changes that model. `""` is the model's default. A non-empty value must be one of the model's `reasoning_efforts` (`GET /v1/models`) and needs that model set.
 - `notify_target` (string, optional): `last_active`, `app_only`, or a channel kind of this Core. Omitted keeps the stored value.
 - `idle_nudge_minutes` (int, optional): 0 through 1440; `0` turns idle reminders off. Omitted keeps the stored value.
 - `avatar` (object or `null`, optional): `{"set": "planets", "id": <planet>}` chooses the Bot's avatar (see Bot list); `null` returns it to the default. Omitted keeps it. A `default` key in it is ignored: sending a default back stores it as chosen. Any other set, planet or value is rejected and nothing is saved.
+- `tools_off` (array of strings or `null`, optional): the whole new list of tool classes turned off (see Tool permissions); `[]` turns every class on. Omitted or `null` keeps it. An unknown class is rejected. `files` brings `shell` along. Only `[]` is accepted for the primary. A class name a newer Core stored and this one does not know is kept and not shown.
 - A non-empty provider id of `local-codex`, `local-grok`, `local-pi`, `local-claude`, or `local-cursor` is rejected. Other fields are ignored.
 
 Response: `200` the profile, same shape as `GET /v1/bot`, after the save and after the main chat exists.
@@ -2518,6 +2530,8 @@ Errors:
 - `400` notify_target must be last_active, app_only or a channel kind
 - `400` idle_nudge_minutes must be 0 through 1440
 - `400` avatar is not `null` or a known set and planet
+- `400` an unknown class in `tools_off`, or a non-empty `tools_off` for the primary
+- `409` another Bot already has this name. The body adds `"code": "bot_name_taken"`, and the message names that Bot's id. Nothing is saved.
 - `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat leaves the profile unsaved. Also an `avatar` while the Bot list cannot be used; nothing is saved.
 
 Events: `bot.changed`. Also `sessions.changed` when this call creates the main chat.
@@ -2648,7 +2662,7 @@ Events: none.
 Auth: any key
 Effect: Creates a specialist Bot with its main chat.
 
-Request: the body of `PUT /v1/bot`, with the same rules for `name`, `description`, the model fields and `avatar`, and optionally `project_id` (string, a registered project's id; see Project binding). `notify_target` and `idle_nudge_minutes` are the primary's and are ignored here.
+Request: the body of `PUT /v1/bot`, with the same rules for `name`, `description`, the model fields, `avatar` and `tools_off`, and optionally `project_id` (string, a registered project's id; see Project binding). `notify_target` and `idle_nudge_minutes` are the primary's and are ignored here.
 
 ```json
 {
@@ -2664,6 +2678,7 @@ Response: `201` the new Bot, with `system_prompt`.
 Errors:
 
 - `400` the same errors as `PUT /v1/bot` for the fields above
+- `409` another Bot already has this name (`code` `bot_name_taken`, as for `PUT /v1/bot`). Nothing is created.
 - `400`, `409` the project in `project_id` is not registered, or its primary directory cannot be used; the Bot is created, unbound, and the message names it
 - `500` the Bot list cannot be used, or the Bot or its main chat could not be saved. Nothing is left behind.
 
@@ -2698,8 +2713,10 @@ Errors:
 
 - `400` the same errors as `PUT /v1/bot`
 - `400` the primary Bot works outside projects (a non-empty `project_id` for the primary)
+- `400` a non-empty `tools_off` for a project's lead or for the primary; nothing is saved
 - `400` project not found (`project_id`)
 - `404` bot not found
+- `409` another Bot already has this name (`code` `bot_name_taken`, as for `PUT /v1/bot`). Nothing is saved.
 - `409` the project's primary directory cannot be used, or the Bot's main chat is running (stop it first)
 - `500` the Bot could not be saved
 
@@ -2978,7 +2995,7 @@ Events: `sessions.changed` and `bot.changed` on success.
 ### POST /v1/bot/tasks
 
 Auth: any key
-Effect: Creates a hidden background task, records it, and starts it. The task uses the primary's task model when one is pinned, otherwise its Bot model, otherwise Core's default model resolution (a `SourceSessionID` of a project lead's chat uses that lead's models first). The response is sent while `status` is still `queued`; the run then moves it to `running`. Creates the main chat first when it does not exist yet. When it settles, its outcome is reported once as a Bot turn in `source_session_id` (or the current main chat when that chat is gone); `report: true` on the task marks this, and `delivered` is set once the report turn is admitted.
+Effect: Creates a hidden background task, records it, and starts it. The task uses the dispatching Bot's task model when one is pinned, otherwise its Bot model, otherwise Core's default model resolution (a `SourceSessionID` of a project lead's chat dispatches as that lead, with the lead's models only). The response is sent while `status` is still `queued`; the run then moves it to `running`. Creates the main chat first when it does not exist yet. When it settles, its outcome is reported once as a Bot turn in `source_session_id` (or the current main chat when that chat is gone); `report: true` on the task marks this, and `delivered` is set once the report turn is admitted.
 
 Request:
 
@@ -6878,7 +6895,7 @@ Response: `200`
 - Each available folder in `status.directories` (not the library) has `git` when it is inside a git work tree: `branch` (`""` on a detached HEAD), `dirty` (changed and untracked paths, `0` when clean), `ahead` and `behind` (commits against the branch's upstream as last fetched; `0` without an upstream). Core reads it with one local `git status`, never fetches, waits at most 2 seconds per folder and reuses an answer for 10 seconds, so `ahead`/`behind` lag until something fetches. `git` is absent when the folder is not in a repository, git is not installed, or git did not answer in time. Only this route fills it.
 
 - `projects` is the saved projects in the order they were saved, each with `status`. An empty Core returns `[]`.
-- Each project may also carry its Bot fields, each present only when set: `lead_bot_id` (the project's lead Bot, a specialist bound to the project, see the Bot list in Bot), `coordinator_session_id` (the project's current Coordinator chat: its lead Bot's main chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the owner hid the project from the main project list; a client shows it in a folded hidden group with its conversations; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on: its lead Bot's Bot model; absent: the primary's Bot model).
+- Each project may also carry its Bot fields, each present only when set: `lead_bot_id` (the project's lead Bot, a specialist bound to the project, see the Bot list in Bot), `coordinator_session_id` (the project's current Coordinator chat: its lead Bot's main chat, see `POST /v1/projects/{project}/coordinator`), `bot_hidden` (true: the owner hid the project from the main project list; a client shows it in a folded hidden group with its conversations; nothing else changes) and `coordinator_provider_id`, `coordinator_model` and `coordinator_reasoning_effort` (the model the project's Coordinator chats run on: its lead Bot's Bot model; absent: the Settings default).
 - `host_os` is the operating system of the machine running Core, such as `darwin`, `linux`, or `windows`.
 
 Errors:
@@ -6924,7 +6941,7 @@ Errors:
 - `400` at most 32 project directories
 - `400` coordinator_provider_id and coordinator_model must be set together
 - `400` coordinator_reasoning_effort needs a model
-- `400` `lead_bot_id` is not a specialist bound to this project, or sent on create
+- `400` `lead_bot_id` is not a specialist bound to this project, or sent on create, or names a Bot with tools turned off (`tools_off`, see Bot)
 - `400` Bot conversations run on a configured provider, not an external agent
 - `400` the Coordinator model is not an enabled provider's active model (the message says why)
 - `400` the project could not be saved (the message says why)
@@ -9315,7 +9332,7 @@ A plan is one JSON object. Create and update send the fields below; a saved plan
 - `max_runs` (int, optional): `0` means no limit (the field is then omitted on output). Otherwise `1` to `100000`. Finished executions count, including failed and cancelled ones. A queued execution that pause, complete or delete cancels before it has been picked up does not count.
 - `monitor` (bool): always present on output. When true, an execution may record a result as quiet (kept, and not unread). Errors are never quiet.
 - `task_id` (string, optional; omitted on output when empty; Core 0.114+): every execution becomes an attempt of this standalone task (one made with `POST /v1/tasks`, see [Tasks](runs.md#tasks)). `mode` must be `standalone`, and `project_id` empty or the task's own: Core stores the task's project. Each execution starts a new conversation titled `<task title> · attempt N`, bound to the task's project and directory and run on the task's `provider_id`/`model` when it has them (else the plan's), with a short handoff in front of the prompt (the task's objective and how the latest attempts ended). Quiet works as with `monitor` (a quiet result is never unread and never delivered), whatever `monitor` says. An execution that finds another attempt of the task still running is skipped: it finishes `succeeded`, quiet, with a summary saying so, and the skip is recorded on the task. When the task has ended, the execution finishes quiet and completes the plan (`capped` pauses it instead, with `reason` `its Task is capped: …`; a task capped by its `daily_tokens` only skips the execution, quiet, until its cap lifts at midnight; a `paused` task pauses the plan with reason `its Task is paused`). Saving is rejected when the task is missing, archived, paused, ended, or a goal, loop or Bot task; an update that keeps the plan's own `task_id` only needs the task to exist (Core 0.114+), so a plan can be edited while its task is paused, capped or ended.
-- `bot_id` (string, optional; omitted on output when empty): the specialist Bot (an `id` from `GET /v1/bots`) whose own work the plan is ([Bot-bound plans](../../docs/schedules.md#bot-bound-plans)). `mode` must be `standalone`, `task_id` empty, `provider_id` not an external agent's, and `project_id` empty or the Bot's own: Core stores it empty, and each execution runs in the Bot's Project as it is then (else in the plan's task directory). Each execution's conversation runs as that Bot: its description as the persona, its memory file, no background task tools, on the plan's `provider_id`/`model` when set, else the Bot's task model, else its Bot model, else the primary's Bot model. `main` in `deliver` is that Bot's main chat, and an app newly named in `deliver` must talk to that Bot (`400` otherwise; an app the plan already names may since have moved). Empty, or the primary's id (stored as empty), is the primary's plan, which runs as before: its conversations are ordinary ones and `main` is the primary's main chat. On update, an empty or omitted `bot_id` keeps the stored value. `DELETE /v1/bots/{id}` is refused (`409`) while a plan that is not deleted names the Bot.
+- `bot_id` (string, optional; omitted on output when empty): the specialist Bot (an `id` from `GET /v1/bots`) whose own work the plan is ([Bot-bound plans](../../docs/schedules.md#bot-bound-plans)). `mode` must be `standalone`, `task_id` empty, `provider_id` not an external agent's, and `project_id` empty or the Bot's own: Core stores it empty, and each execution runs in the Bot's Project as it is then (else in the plan's task directory). Each execution's conversation runs as that Bot: its description as the persona, its memory file, no background task tools, on the plan's `provider_id`/`model` when set, else the Bot's task model, else its Bot model, else the Settings default (never the primary's model). `main` in `deliver` is that Bot's main chat, and an app newly named in `deliver` must talk to that Bot (`400` otherwise; an app the plan already names may since have moved). Empty, or the primary's id (stored as empty), is the primary's plan, which runs as before: its conversations are ordinary ones and `main` is the primary's main chat. On update, an empty or omitted `bot_id` keeps the stored value. `DELETE /v1/bots/{id}` is refused (`409`) while a plan that is not deleted names the Bot.
 - `deliver` (string): where a finished result is also sent. `local` means the scheduled list only. `main` is the Bot main chat. Any other token must be the `id` of one of `deliver_channels` from the list route: a configured channel app (`feishu`, `feishu-1a2b3c4d`, `discord`). The first app of a kind has the kind as its id, so a plan saved with `feishu` before a Core had several apps keeps going to that same app. A result goes to that app only: the owner's direct chat on it and its current chat on the Bot it is bound to now (after a `/new` there, the new chat). A plan follows its app when the app is bound to another Bot. When the app is switched off, removed or has no owner, the result is not delivered (the run's `delivery_error` says why), no other app of the kind stands in, and the plan keeps running. Several targets are comma-separated; Core trims, lowercases and de-duplicates them, and drops `local` when another target remains. The stored value is either `local` or a comma-separated list with no spaces, such as `main,feishu`. `origin` is rejected on these routes. On create, an empty or omitted `deliver` is stored as `local`. On update, an empty or omitted `deliver` keeps the stored value. A plan saved with no `deliver` is returned as `local`.
 - `notify` (string): which finished results count as unread and mark their conversation (see `unseen` on the conversation list). `all`: every result. `errors`: only results that did not succeed (`failed`, `interrupted`, `cancelled`); a `succeeded` result is saved already `read`. `never`: every result is saved already `read` and no conversation is marked. `default`: the Core-wide level from `GET /v1/schedule-settings`, read when each result finishes. A quiet result is never unread and never marks its conversation, whatever the level; a level never makes a result louder than `all` would. Core trims and lowercases the value. On create, an empty or omitted `notify` is stored as `default`. On update, an empty or omitted `notify` keeps the stored value. A plan saved with no `notify` is returned as `default`. It does not change `deliver`.
 - `id` (string): plan id. Set by Core.
@@ -9686,7 +9703,7 @@ Errors:
 - `400` result not found (`file does not exist`), or the result could not be saved
 - `503` scheduler is not running, or scheduler storage is unavailable
 
-Events: `schedules.changed`; `sessions.changed` when the conversation was unseen
+Events: `schedules.changed`; `sessions.changed` when the conversation was unseen, and also `bot.changed` when it is a Bot chat
 
 ### POST /v1/schedule-runs/{run}/archive
 
@@ -10464,7 +10481,7 @@ Errors:
 - `404` session not found
 - `500` the seen mark could not be saved
 
-Events: `sessions.changed` when `changed` is true.
+Events: `sessions.changed` when `changed` is true, and also `bot.changed` when the conversation is a Bot chat (a Bot's `unseen` reads its main chat's mark).
 
 ### POST /v1/sessions/seen
 
@@ -10488,7 +10505,7 @@ Errors:
 
 - `500` a seen mark or a result could not be saved; marks written before the failure stay
 
-Events: `sessions.changed` for each conversation in `sessions`; `schedules.changed` when a result was marked read.
+Events: `sessions.changed` for each conversation in `sessions`, and `bot.changed` for each of them that is a Bot chat; `schedules.changed` when a result was marked read.
 
 ### POST /v1/sessions/{id}/fork
 
@@ -10632,7 +10649,7 @@ Response: `200`
 
 - `settings` is `null` when no model is saved. A title with no model still returns `null`. When present, `provider_id`, `model`, `reasoning_effort`, `speed`, and `updated_at` are always included. Empty `reasoning_effort` or `speed` means the model's default. `updated_by` is the id of the access key that saved the choice, never the secret, and is omitted when unset. `title` is omitted when unset. `PUT` settings does not change `title`.
 - `effective` is the saved choice, else the Settings default, else the first available model. A saved external-agent model on a Bot conversation counts as unset. The four fields are always present; `reasoning_effort` and `speed` may be `""`.
-- In a Bot chat (main chat, side chat or channel chat) the conversation has no model of its own: `settings` is the Bot model (or `null` when unset), `effective` is the Bot model, else the Settings default, else the first available model, and `bot` is `{"scope": "bot", "bot_model", "task_model"}`, each model `{provider_id, model, reasoning_effort, speed}` or `null` when unset. `bot` is omitted outside Bot chats. In a project's Coordinator chat (or a chat branched from or set aside by one) `settings` and `effective` are the project's Coordinator model when it has one, and `bot` is `{"scope": "project", "project_id", "project_model", "bot_model", "task_model"}` with `project_model` `null` while the chat follows the Bot model.
+- In a Bot chat (main chat, side chat or channel chat) the conversation has no model of its own: it runs on the model of the chat's own Bot. `settings` is that Bot's model (or `null` when unset), `effective` is the Bot's model, else the Settings default, else the first available model, and `bot` is `{"scope": "bot", "bot_id", "bot_model", "task_model", "follows_default"}`: `bot_id` is the chat's Bot (an `id` from `GET /v1/bots`), each model `{provider_id, model, reasoning_effort, speed}` or `null` when unset, and `follows_default` is `true` while the Bot has no model of its own, so the chat follows the Settings default (and moves with it). A Bot never runs on another Bot's model: a specialist without a model follows the Settings default, not the primary's model. `bot` is omitted outside Bot chats. In a project's Coordinator chat (or a chat branched from or set aside by one) the chat's Bot is the project's lead: `settings` and `effective` are the project's Coordinator model, which is the lead's Bot model, when it has one, and `bot` is `{"scope": "project", "project_id", "project_model", "bot_id", "bot_model", "task_model", "follows_default"}` with `project_model` `null` while the chat follows the Settings default.
 
 Errors:
 
@@ -10659,9 +10676,9 @@ Request:
 }
 ```
 
-- `provider_id` and `model` (strings) are required and must name a model that is available now.
+- `provider_id` and `model` (strings) are required and must name a model that is available now; in a Bot chat both `""` clear the target instead (below).
 - `reasoning_effort` and `speed` (strings, optional). A non-empty `reasoning_effort` must be one of that model's `reasoning_efforts` (`GET /v1/models`); for a provider model those are the levels its model list reported, sent as Chat Completions `reasoning_effort` or Responses `reasoning.effort`, and `""` sends none. `speed` must be empty for a provider model. For an external agent, `speed` of `""` or `default` is always accepted; any other value must be one of that model's service tier ids.
-- `target` (string, optional) applies only in a pinned Bot chat (the main chat, a channel's current chat, a Project's current Coordinator and their lanes; since #2198 a chat `/new` set aside, a side or parallel chat has its own setting like any conversation; since #2477 a side or parallel chat of no Bot chat is a plain conversation, and a chat `/new` set aside stays its Bot's, #2481): `"bot"` (default) sets the Bot model, which every Bot chat uses from its next turn; `"task"` sets only the Bot's task model, and `"task"` with `provider_id` and `model` both `""` clears it (tasks follow the Bot model). In a project's Coordinator chat the default is `"project"`: it sets that project's Coordinator model (`provider_id` and `model` both `""` clear it, so its Coordinator chats follow the Bot model). Outside Bot chats it is ignored.
+- `target` (string, optional) applies only in a pinned Bot chat (the main chat, a channel's current chat, a Project's current Coordinator and their lanes; since #2198 a chat `/new` set aside, a side or parallel chat has its own setting like any conversation; since #2477 a side or parallel chat of no Bot chat is a plain conversation, and a chat `/new` set aside stays its Bot's, #2481): it always changes the chat's own Bot (in a project's Coordinator chat, the project's lead), never another Bot. `"bot"` (default) sets that Bot's model, which every chat of that Bot uses from its next turn; `"bot"` with `provider_id` and `model` both `""` clears it and its reasoning effort, so the Bot follows the Settings default. `"task"` sets only the Bot's task model, and `"task"` with both `""` clears it (tasks follow the Bot's model). In a project's Coordinator chat the default is `"project"`: it sets that project's Coordinator model, the lead's Bot model (both `""` clear it, so its Coordinator chats follow the Settings default). A cleared choice with a non-empty `reasoning_effort`, or only one of `provider_id` and `model`, is `400`. Outside Bot chats it is ignored.
 - The body is at most 4096 bytes. Other fields are ignored.
 
 A conversation an external agent owns can stay on that agent. Pointing it at a provider, or at a different external agent, is refused. A Bot conversation cannot be pointed at an external agent (`400`). A plain conversation follows the rule above whether or not it ran on Gyres' own models (#2477; from #2198 until then, one that ran as the Bot answered `409`).
@@ -10674,6 +10691,7 @@ Errors:
 - `400` invalid json
 - `400` `target must be "bot" or "task" (or "project" in a Project's Coordinator chat)`
 - `400` provider_id and model are required
+- `400` reasoning_effort needs a model
 - `400` unknown or unavailable model
 - `400` speed currently requires an external agent model
 - `400` unsupported reasoning_effort for this model
@@ -13231,7 +13249,7 @@ Refetch: `GET /v1/sessions/{id}/run-state` and `GET /v1/sessions/{id}/pending-me
 
 ### bot.changed
 
-The Bot's saved state changed (profile, models, chats, tasks, supervision agenda), its memory text or memory change log changed, a Bot chat started or finished a run, or a supervisor run started or ended. It is also sent when the Bot list changes: a specialist Bot was created, saved or deleted, or a specialist's memory changed. Optional: listed in `ready.publishes`.
+The Bot's saved state changed (profile, models, chats, tasks, supervision agenda), its memory text or memory change log changed, a Bot chat started or finished a run or was marked seen (a Bot's `unseen`), or a supervisor run started or ended. It is also sent when the Bot list changes: a specialist Bot was created, saved or deleted, or a specialist's memory changed. Optional: listed in `ready.publishes`.
 
 ```json
 { "type": "bot.changed" }
@@ -14059,6 +14077,18 @@ Each entry:
 
     - What changed (endpoint, field or event).
       Migration: what a client must do.
+
+## api_version 7 (Gyres 0.132.0)
+
+- `PUT /v1/sessions/{id}/settings` in a project's Coordinator chat: `target`
+  `bot` and `task` now change the project's lead Bot (the chat's own Bot),
+  no longer the primary Bot, and that chat's `bot.bot_model` and
+  `bot.task_model` are the lead's. A Bot without a model of its own now
+  follows the Settings default instead of the primary's Bot model, in its
+  chats and in the tasks handed to it.
+  Migration: to change the primary's models, use `PUT /v1/bot` or a chat of
+  the primary; read whether a Bot chat follows the default from
+  `bot.follows_default`.
 
 ## api_version 6 (Gyres 0.128.0)
 

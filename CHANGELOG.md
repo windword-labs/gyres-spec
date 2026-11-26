@@ -16,6 +16,18 @@ Each entry:
     - What changed (endpoint, field or event).
       Migration: what a client must do.
 
+## api_version 7 (Gyres 0.132.0)
+
+- `PUT /v1/sessions/{id}/settings` in a project's Coordinator chat: `target`
+  `bot` and `task` now change the project's lead Bot (the chat's own Bot),
+  no longer the primary Bot, and that chat's `bot.bot_model` and
+  `bot.task_model` are the lead's. A Bot without a model of its own now
+  follows the Settings default instead of the primary's Bot model, in its
+  chats and in the tasks handed to it.
+  Migration: to change the primary's models, use `PUT /v1/bot` or a chat of
+  the primary; read whether a Bot chat follows the default from
+  `bot.follows_default`.
+
 ## api_version 6 (Gyres 0.128.0)
 
 - `GET /v1/provider-settings` and the `PUT` response no longer return a
