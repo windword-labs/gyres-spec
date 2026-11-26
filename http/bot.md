@@ -26,6 +26,7 @@ A successful body is `application/json`. An error body is `{"error":"<message>",
 - `projects` (array) is every registered project in the order of `GET /v1/projects`, for a project list next to the Bot's chats: `id`, `name`, `available` (the project's directories can be used now), `running` (one of its open chats, the current Coordinator chat or a project chat without `ended`, holds a live turn), and when set `folderless`, `bot_hidden`, `coordinator_session_id` (the current Coordinator chat, absent until `POST /v1/projects/{project}/coordinator` created it) and `run_state` (as for a chat: the Coordinator chat's when it is not `idle`, else the first open chat's that is not `idle`, else `idle`). `[]` when none are registered.
 - `agenda` (array, read only) is the Bot's supervision agenda: open items first, then settled ones, each group most recently updated first. See Agenda. `[]` when empty.
 - `agenda_error` (string) is present only when the stored agenda could not be read at start. `agenda` is then `[]` and the Bot cannot change the agenda until the file is repaired or removed and Core restarts. The rest of the profile is unaffected.
+- `avatar` (object): the primary's avatar, as in the Bot list. Absent while the Bot list cannot be used.
 
 A session id is UTC time `YYYY-MM-DDTHH-MM-SS`, then `_`, then a UUID. Example: `2026-10-14T12-02-00_3f1c2a90-7b6e-4d11-8a55-0c1e2d3f4a5b`.
 
@@ -53,8 +54,10 @@ Each Bot in the list:
 - `configured`, `name`, `description`, `main_session_id`, `bot_provider_id`, `bot_model`, `bot_reasoning_effort`, `task_provider_id`, `task_model`, `task_reasoning_effort`, `chats`: as in Profile. A specialist is always `configured` and always has a main chat, created with it.
 - `project_id` (string): the project a specialist is bound to; `""` for none and always for the primary.
 - `lead_of` (string): present when the Bot is that project's lead.
+- `last_message` (string) and `last_message_at` (string, UTC RFC3339): the newest user or assistant text across the Bot's main chat and its channel chats (`channel_chats`), on one line (white space collapsed) and cut at 160 characters with `…`, and when it was written. Tool calls, tool results and Core's own notices are skipped. Both are absent while those chats have no such message. Use them for a list preview; the transcript is the source of truth.
 - `error` (string): present only when this Bot's stored state could not be read at start; its changes are refused until the file is repaired and Core restarts.
 - `system_prompt` (string): on `GET`, `PUT` and `POST` of one Bot only, not in the list.
+- `avatar` (object, always present): the Bot's picture, `{"set": "planets", "id": "saturn"}`. `set` is the avatar set (only `planets` exists) and `id` one of its planets: `sun`, `mercury`, `venus`, `earth`, `mars`, `jupiter`, `saturn`, `uranus`, `neptune`, `pluto`, `moon`, `comet`. Core sends only the choice: the Gyres apps draw the planet from their own built-in avatar spec, and a client without it can show the name or its own picture. A Bot that chose none gets one derived from its `id`, the same on every start, with `"default": true`; `default` is absent on a chosen avatar. Clients never compute the default themselves.
 
 ## Chats
 
@@ -276,7 +279,8 @@ Response: `200`
   "agenda": [],
   "notify_target": "last_active",
   "notify_channel": "feishu",
-  "idle_nudge_minutes": 10
+  "idle_nudge_minutes": 10,
+  "avatar": {"set": "planets", "id": "saturn"}
 }
 ```
 
@@ -312,6 +316,7 @@ Request:
 - `bot_reasoning_effort` and `task_reasoning_effort` (strings, optional). Omitted keeps the effort while the model stays the same and clears it when the same body changes that model. `""` is the model's default. A non-empty value must be one of the model's `reasoning_efforts` (`GET /v1/models`) and needs that model set.
 - `notify_target` (string, optional): `last_active`, `app_only`, or a channel kind of this Core. Omitted keeps the stored value.
 - `idle_nudge_minutes` (int, optional): 0 through 1440; `0` turns idle reminders off. Omitted keeps the stored value.
+- `avatar` (object or `null`, optional): `{"set": "planets", "id": <planet>}` chooses the Bot's avatar (see Bot list); `null` returns it to the default. Omitted keeps it. A `default` key in it is ignored: sending a default back stores it as chosen. Any other set, planet or value is rejected and nothing is saved.
 - A non-empty provider id of `local-codex`, `local-grok`, `local-pi`, `local-claude`, or `local-cursor` is rejected. Other fields are ignored.
 
 Response: `200` the profile, same shape as `GET /v1/bot`, after the save and after the main chat exists.
@@ -327,7 +332,8 @@ Errors:
 - `400` Bot conversations run on a configured provider, not an external agent
 - `400` notify_target must be last_active, app_only or a channel kind
 - `400` idle_nudge_minutes must be 0 through 1440
-- `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat leaves the profile unsaved.
+- `400` avatar is not `null` or a known set and planet
+- `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat leaves the profile unsaved. Also an `avatar` while the Bot list cannot be used; nothing is saved.
 
 Events: `bot.changed`. Also `sessions.changed` when this call creates the main chat.
 
@@ -437,7 +443,8 @@ Response: `200`
       "chats": [],
       "channel_chats": [
         {"instance_id": "feishu", "kind": "feishu", "session_id": "2026-10-14T12-05-00_9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d"}
-      ]
+      ],
+      "avatar": {"set": "planets", "id": "mars", "default": true}
     }
   ]
 }
@@ -456,7 +463,7 @@ Events: none.
 Auth: any key
 Effect: Creates a specialist Bot with its main chat.
 
-Request: the body of `PUT /v1/bot`, with the same rules for `name`, `description` and the model fields, and optionally `project_id` (string, a registered project's id; see Project binding). `notify_target` and `idle_nudge_minutes` are the primary's and are ignored here.
+Request: the body of `PUT /v1/bot`, with the same rules for `name`, `description`, the model fields and `avatar`, and optionally `project_id` (string, a registered project's id; see Project binding). `notify_target` and `idle_nudge_minutes` are the primary's and are ignored here.
 
 ```json
 {
