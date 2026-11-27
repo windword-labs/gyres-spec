@@ -97,8 +97,8 @@ Events: none.
 
 ### GET /v1/memory
 
-Auth: admin
-Effect: Returns the owner's memory snapshot, the review settings, and the pending proposals and review jobs. Review transcripts are cleared before the response is sent. This is the owner memory, not one project's memory: project text is not in `snapshot`.
+Auth: any key
+Effect: Returns the owner memory of the caller's user, for any key of that user, ordinary or administrator; no key reaches another user's memory: the snapshot, the review settings, and the pending proposals and review jobs. Each user has their own; a user who has never saved any gets empty texts and the default settings. Review transcripts are cleared before the response is sent. This is the owner memory, not one project's memory: project text is not in `snapshot`.
 
 Request: no body.
 
@@ -171,7 +171,7 @@ Response: `200`
 - `counters` maps a conversation id to `{count, last_message_id}` and, when skill learning is counting tool calls, `tools`. It is `{}` when empty.
 - `audit` is the latest 100 notes, oldest first once the cap is reached. Each note is `{at, action, target, source, detail}`. `action` is `edit`, `propose`, `approve`, `reject`, `add`, `replace`, `remove`, or `review_` plus a job status. A save made through `PUT /v1/memory` records `edit` with `source.origin` `desktop` and `detail` `Owner edited memory`.
 - `forgotten` lists opaque hashes of entries an edit removed, so a later review does not put the same entry back. JSON `null` until the first one.
-- `directory` is the absolute directory of this memory.
+- `directory` is the absolute directory of this memory: `<home>/memories/owner` for the first user, `<home>/memories/<user id>` for any other, which exists only after that user's first save.
 
 Errors:
 
@@ -430,8 +430,8 @@ Events: none.
 
 ### POST /v1/memory/jobs/{id}/retry
 
-Auth: admin
-Effect: Queues a failed memory review again. Attempts and the error are cleared, and the next try is not delayed. Any other status is refused. Refetch `GET /v1/memory` to see the job.
+Auth: any key
+Effect: Queues a failed memory review of the caller's user again. Attempts and the error are cleared, and the next try is not delayed. Any other status, and another user's job, is refused. Refetch `GET /v1/memory` to see the job.
 
 Path: `id` review job id from `state.jobs`.
 
@@ -451,8 +451,8 @@ Events: none.
 
 ### POST /v1/memory/proposals/{id}
 
-Auth: admin
-Effect: Approves or rejects one pending memory proposal, then removes it. Approve applies the operation when `version` still matches the current text. A mismatch leaves the proposal in place. Reject removes it and changes no text. Refetch `GET /v1/memory`. Approving a `project` proposal writes that project's memory; this route's owner snapshot does not include project text.
+Auth: any key
+Effect: Approves or rejects one pending memory proposal of the caller's user (another user's is not found), then removes it. Approve applies the operation when `version` still matches the current text. A mismatch leaves the proposal in place. Reject removes it and changes no text. Refetch `GET /v1/memory`. Approving a `project` proposal writes that project's memory; this route's owner snapshot does not include project text.
 
 Path: `id` proposal id from `state.proposals`.
 
@@ -627,8 +627,8 @@ Events: none.
 
 ### PUT /v1/memory
 
-Auth: admin
-Effect: Replaces the owner's memory settings and the two memory texts, when `version` is still the one from `GET /v1/memory`. Proposals, jobs and audit are not part of the body. An edit that drops an existing entry records that entry as forgotten and marks queued, running and failed reviews `superseded`. Returns the same object as `GET /v1/memory`, including the new `version`. Use that `version` for the next save.
+Auth: any key
+Effect: Replaces the caller's user's memory settings and the two memory texts, when `version` is still the one from `GET /v1/memory`. Proposals, jobs and audit are not part of the body. An edit that drops an existing entry records that entry as forgotten and marks queued, running and failed reviews `superseded`. Returns the same object as `GET /v1/memory`, including the new `version`. Use that `version` for the next save.
 
 Request:
 

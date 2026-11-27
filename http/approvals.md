@@ -23,6 +23,8 @@ A grant with `scope` `global` omits `session_id` and applies in every conversati
 
 `status` on a request is `pending`, `approved`, `rejected`, `denied`, `expired` or `cancelled`. `scope` on an approved request is `once`, `session` or `global`. `finished_at` is set once the request leaves `pending`. A restart stores a still-waiting request as `expired` with `reason` `Core restarted; this operation was not replayed`.
 
+A key sees and decides only the requests of its own user's conversations, the conversation grants and modes of those conversations, the policy and the global grants. Deciding another user's request answers as for a request that does not exist. Only the first user may choose `global`, change the settings or revoke grants (`403` otherwise).
+
 Changes publish `approvals.changed` on `GET /v1/events`, with no conversation id. One request can publish it more than once. Refetch `GET /v1/approvals`. Submitting a policy or a mode that is already stored publishes nothing.
 
 ### GET /v1/approvals

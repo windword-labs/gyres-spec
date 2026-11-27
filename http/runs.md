@@ -165,7 +165,7 @@ A hold lasts 2 minutes and is kept only in memory. Another `hold` refreshes it. 
 ### GET /v1/events
 
 Auth: any key
-Effect: Opens the Core-wide notification stream. The first frame is `ready`. The stream then forwards notifications until the client disconnects or Core closes it (Core is reloading). There is no resume cursor: connect again. The server does not read a last-event id. If this client falls behind, a later frame is `resync`; refetch anything you were watching. Frames and fields are in [Events](../events.md).
+Effect: Opens the Core-wide notification stream of the caller's user. The first frame is `ready`. Notifications that name a conversation reach only its owner; `bot.changed`, `peers.changed`, `schedules.changed` and `project_list.changed` reach only the first user of the Core; the others reach every user. The stream then forwards notifications until the client disconnects or Core closes it (Core is reloading). There is no resume cursor: connect again. The server does not read a last-event id. If this client falls behind, a later frame is `resync`; refetch anything you were watching. Frames and fields are in [Events](../events.md).
 
 Request: no body.
 

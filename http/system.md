@@ -108,7 +108,7 @@ Events: none.
 ### GET /v1/identity
 
 Auth: any key
-Effect: Reports which kind of access key this request used, and where this Core can be reached. The response sends `Cache-Control: no-store`.
+Effect: Reports which kind of access key this request used, whose it is, and where this Core can be reached. The response sends `Cache-Control: no-store`.
 
 Request: no body.
 
@@ -124,10 +124,14 @@ Response: `200`
     { "url": "http://192.0.2.10:15100", "source": "lan" },
     { "url": "http://127.0.0.1:15100", "source": "loopback" }
   ],
-  "caller_loopback": false
+  "caller_loopback": false,
+  "user_id": "owner",
+  "user_name": "Owner",
+  "key_name": "Work laptop"
 }
 ```
 
+- `user_id` and `user_name` are the Core user the key belongs to. The first user of every Core has the id `owner`; other users have 24 lowercase hex characters. `key_name` is the key's own label. Each is an empty string when it cannot be read. Older Cores omit them.
 - `role` is `admin` when the key is an administrator key, and `user` for every other accepted key.
 - `host` is the operating-system hostname of the Core machine. It is an empty string when that name cannot be read.
 - `instance_id` is 32 lowercase hex characters, stable for this Core's home across restarts. Clients that know several addresses use it to recognise one machine. It is an empty string when it cannot be stored.

@@ -51,6 +51,7 @@ Request: no body, or
 ```
 
 - `role` (string, optional) is `user` (the default) or `admin`: the kind of key the code will create. Any other value, another field, or a body that is not one JSON object of at most 4096 bytes is `400`.
+- `user_id` (string, optional) is the [user](users.md) the new key will belong to. Without it the key belongs to the user of the administrator key that created the code. A Core older than users answers `400` to this field; send it only when a user other than your own is chosen.
 
 Response: `201`
 
@@ -67,6 +68,7 @@ Response: `201`
 - `code` is the one-time pairing code, returned only here. Show it to the device; a later status read will not repeat it.
 - `id` identifies this code for status and cancel. It is not the code.
 - `expires_at` is 2 minutes after creation, UTC.
+- `user_id` is the user the code's key will belong to. Older Cores omit it.
 - `role` is the kind of key the code creates, `user` or `admin`. A Core that does not report it creates ordinary keys only and ignores the request body.
 - `relay` and `ck` are present only while the Gyres relay is on ([relay](relay.md)): the relay address for this Core and Core's X25519 Noise public key (base64url, 32 bytes). A pairing link carries them as the `relay` and `ck` fragment keys.
 - `core_url` is the address the device should use. The request is first taken as it arrived: scheme `https` when the connection is TLS, otherwise `http`, and the host header. When the peer is a trusted proxy, exactly one forwarding family is present, and those headers are well formed, that view is replaced by the proxy's scheme and host (`Forwarded`, or `X-Forwarded-Proto` together with `X-Forwarded-Host`). Both families at once, an untrusted peer, or a malformed header leave the connection unchanged.
@@ -86,6 +88,7 @@ Errors:
 ```
 
 - `400` invalid request, or role must be admin or user
+- `404` `code` `user_not_found`: `user_id` names no user of this Core. No code is stored.
 - `429` too many pairing codes are active; wait or cancel one
 
 Events: none.
@@ -93,7 +96,7 @@ Events: none.
 ### POST /v1/pairing/redeem
 
 Auth: none
-Effect: Exchanges one valid pairing code for a new access key of the code's role and returns its secret once. The code is consumed before the key is saved, so a second request, a concurrent request, or a failed save cannot mint another key from it.
+Effect: Exchanges one valid pairing code for a new access key of the code's role and user and returns its secret once. The code is consumed before the key is saved, so a second request, a concurrent request, or a failed save cannot mint another key from it.
 
 Request:
 

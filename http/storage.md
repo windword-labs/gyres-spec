@@ -500,12 +500,12 @@ One event per conversation removed, with that conversation's `session_id`. A run
 
 The download and the upload share one lock. A second export or import gets `409` `transfer_busy`.
 
-The package is a zip. `manifest.json` is the last entry. Its `format` is `gyres-export` and `format_version` is `1`. A client that only saves or uploads the body can treat the zip as opaque. The fields below are what import checks and what `GET /v1/import` repeats from the last package.
+The package is a zip. `manifest.json` is the last entry. Its `format` is `gyres-export` and `format_version` is `2` (packages from releases before the `users` part have `1` and still import; a version above `2` is refused with a request to update Gyres). A client that only saves or uploads the body can treat the zip as opaque. The fields below are what import checks and what `GET /v1/import` repeats from the last package.
 
 ```json
 {
   "format": "gyres-export",
-  "format_version": 1,
+  "format_version": 2,
   "gyres_version": "1.2.3",
   "created_at": "2026-10-14T12:00:00Z",
   "source": {
@@ -544,12 +544,12 @@ The package is a zip. `manifest.json` is the last entry. Its `format` is `gyres-
 ```
 
 - `source.parts` maps every part id (`sessions`, `workspaces`, `visualizations`, `projects`, `memories`, `bot`, `skills`, `schedules`, `tasks`, `code`, `plugins`, `approvals`) to its directory. The example shows one. `source.resolved`, when present, maps a part id to that same directory with symlinks resolved, and only for parts where the two paths differ.
-- `categories[].id` is `conversations`, `projects`, `memory`, `bot`, `skills`, `schedules`, `tasks`, `code`, `plugins`, `approvals`, then `settings`. `files` and `bytes` count packed files. Empty parts are still listed. `excluded` is always the list in the example.
+- `categories[].id` is `conversations`, `projects`, `memory`, `bot`, `skills`, `schedules`, `tasks`, `code`, `plugins`, `approvals`, `users`, then `settings`. `files` and `bytes` count packed files. Empty parts are still listed. `excluded` is always the list in the example.
 - `mode` on a file entry is the permission bits as a number. `384` is owner read and write.
 - `secrets_to_reenter[].kind` is `provider`, `plugin`, `mcp` or `channel`. `keys` is present for a plugin and lists the secret names that had a value, not the values. `provider` uses the provider name, or its id when the name is empty. `channel` uses the kind, `feishu` or `discord`.
 - API keys, the data location, the listen address, LAN discovery, TLS and trusted proxies are removed from the packed settings. Access keys, certificates, plugin secrets, MCP credentials, Bot channel connections, logs and caches are not packed. `excluded` names those groups.
 - A file entry omits `type` and includes `size` and a 64-character `sha256`. `mode` is the permission bits. `mtime` is omitted when zero. A directory has `type` `dir`. A link has `type` `link` and `target`, and is not a zip entry of its own.
-- Paths are relative and use `/`. They sit under `conversations/sessions`, `conversations/workspaces`, `conversations/visualizations`, `projects/projects`, `memory/memories`, `bot/bot`, `skills/skills`, `schedules/schedules`, `tasks/tasks`, `code/code`, `plugins/plugins`, `approvals/approvals`, or `settings/` with one of `config.json`, `mcp-servers.json`, `codex.json`, `grok.json`, `pi.json`, `claude.json`, `hooks.json`, `running-input.json`. `bot/bot/channels` and `plugins/plugins/.tmp` are not valid entries.
+- Paths are relative and use `/`. They sit under `conversations/sessions`, `conversations/workspaces`, `conversations/visualizations`, `projects/projects`, `memory/memories`, `bot/bot`, `skills/skills`, `schedules/schedules`, `tasks/tasks`, `code/code`, `plugins/plugins`, `approvals/approvals`, `users/users`, or `settings/` with one of `config.json`, `mcp-servers.json`, `codex.json`, `grok.json`, `pi.json`, `claude.json`, `hooks.json`, `running-input.json`. `bot/bot/channels` and `plugins/plugins/.tmp` are not valid entries.
 
 ### GET /v1/export
 
@@ -648,11 +648,12 @@ Response: `200`
 ```
 
 - `running` is true only while an import holds the transfer lock, including during the upload before `POST /v1/import` answers. An export in progress leaves it false. After the import is accepted, maintenance hides this route until the import fails or Core reopens. Follow progress on `GET /v1/storage`.
-- `not_fresh` is always an array. An empty array means a package can be imported. Otherwise the ids are the categories that already hold data, in this order, skipping empty ones: `conversations`, `projects`, `memory`, `bot`, `skills`, `schedules`, `code`, `plugins`.
+- `not_fresh` is always an array. An empty array means a package can be imported. Otherwise the ids are the categories that already hold data, in this order, skipping empty ones: `conversations`, `projects`, `memory`, `bot`, `users`, `skills`, `schedules`, `code`, `plugins`.
 - `conversations`: a non-empty transcript (`*.jsonl`) under sessions, or any other user file under workspaces or visualizations.
 - `projects`: `projects.json` is not a JSON array, or that array is not empty, or projects has any other user file.
 - `memory`: a Markdown file that is not empty or whitespace.
 - `bot`: a non-blank `MEMORY.md`, or any file under `incidents/`.
+- `users`: a user besides the first. Access keys are never in a package, so another user's keys here would be left with no user.
 - `skills`, `schedules` and `code`: any user file. `plugins`: any user file outside `.tmp`.
 - Ignored names are the same as on the storage check, plus `.lock`. A link, any other non-directory, and a directory that cannot be read count as data. What a new Core writes for an empty Bot chat, default settings and blank memory files does not.
 - `last` is omitted when no import has been recorded or the record cannot be read.

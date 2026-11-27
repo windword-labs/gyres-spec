@@ -62,6 +62,7 @@ latest Gyres release only; breaking changes are listed in
   - [Conversations](http/sessions.md)
   - [Storage, export and import](http/storage.md)
   - [System](http/system.md)
+  - [Users](http/users.md)
 
 Every endpoint uses the same layout: `### METHOD /path`, then `Auth:`
 (`none`, `any key` or `admin`), `Effect:`, `Request`, `Response`, `Errors` and

@@ -61,6 +61,8 @@ not JSON: read the status code, not the body.
 | `403` | `administrator key required` (JSON) | An `Auth: admin` route called with an ordinary key. Hide admin features for non-admin keys (`GET /v1/identity` tells you the role). |
 | `403` | `invalid host` (text) | The `Host` header is not an IP address, `localhost`, or Core's configured HTTPS domain. Connect by IP or by that domain. |
 | `403` | `manage configuration on the host` (text) | A route that only the Core host itself may use. |
+| `403` | `only the first user of this Core can use this` (JSON) | A route of the Core's first user (Bots, Projects, channels, peers, schedules, Tasks, MCP, approval settings, skill, plugin and hook management, memory) called with a key of another user. `GET /v1/identity` reports the key's `user_id`; the first user's is `owner`. |
+| `404` | `session not found` (JSON) | A `/v1/sessions/{id}` route naming a conversation of another user: the same answer as for one that does not exist. |
 
 A key revoked while a request or stream is open ends that request within about
 a quarter of a second.

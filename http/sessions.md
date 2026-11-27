@@ -6,6 +6,8 @@ Every JSON response is `application/json`. An error body is `{"error":"<message>
 
 Many routes take either a session id or a lane handle in `{id}`. A lane is another path through the same conversation, branched from one message. The list contains only main conversations. Settings, the recap, and the seen mark belong to the lane named in the path. The workspace, the context epoch, and the context mode belong to the whole conversation: a lane handle reads and writes the same values as its session id. Archive, unarchive, pin, and unpin reject a lane handle before they check that the conversation exists.
 
+Every conversation belongs to one Core user, its owner (the user of the key that created it; older conversations belong to the first user). A key sees and reaches only its own user's conversations, administrator keys included: every `/v1/sessions/{id}` route answers a conversation of another user with `404` `session not found` before it reads anything, the answer a conversation that does not exist gets, and the lists, `GET /v1/session-search` and the bulk routes leave other users' conversations out. A Core with one user (every Core today) answers exactly as before.
+
 ## Identifiers
 
 A new session id looks like `2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd-ef0123456789`: a UTC timestamp with `:` and `.` rewritten as `-` and cut to 19 characters, then `_`, then a UUID. A message id looks like `msg_3f2a1b0c-4d5e-6789-abcd-ef0123456789`. A turn id looks like `turn_3f2a1b0c4d5e6789abcdef0123456789`. Do not parse these.
@@ -289,7 +291,7 @@ Codex, Grok, pi, Claude, and Cursor can own a conversation. Their provider ids a
 ### GET /v1/sessions
 
 Auth: any key
-Effect: Lists conversations. The live list is the default. `archived=true` lists archived conversations instead.
+Effect: Lists the caller's user's conversations. The live list is the default. `archived=true` lists archived conversations instead.
 
 Query:
 
@@ -316,7 +318,7 @@ Events: none.
 ### POST /v1/sessions
 
 Auth: any key
-Effect: Creates an empty main conversation and stores the Core default context mode (`window` only when that default is exactly `window`, otherwise `summary`). The body is not read.
+Effect: Creates an empty main conversation owned by the caller's user and stores the Core default context mode (`window` only when that default is exactly `window`, otherwise `summary`). The body is not read.
 
 Request: no body.
 
@@ -330,6 +332,7 @@ Response: `200`
 
 Errors:
 
+- `403` the credential has no user (a key whose record cannot be read)
 - `500` the conversation could not be created. If the context mode cannot be stored, the new conversation is removed.
 
 Events: `sessions.changed`. If storing the context mode fails, the removed conversation is announced the same way.
@@ -534,7 +537,7 @@ Events: `sessions.changed`
 ### POST /v1/sessions/archived/delete
 
 Auth: any key
-Effect: Deletes archived conversations. `older_than_days` of `0`, or an empty body, deletes every archived conversation that can be removed. A positive value deletes those whose `modified` is strictly before now minus that many 24-hour days (`modified` is parsed as a timestamp with a fraction). Each conversation removed publishes `sessions.changed`. Bot conversations are not offered and are not counted. A conversation whose `modified` cannot be parsed, or that is not old enough, is not counted. One that is no longer archived, or whose modification time changed after it was listed, is left and not counted. A running conversation, a pinned one, or a delete that fails increments `skipped`. If storage becomes unavailable the scan stops and the response is still `200` with the counts so far.
+Effect: Deletes the caller's user's archived conversations. `older_than_days` of `0`, or an empty body, deletes every archived conversation that can be removed. A positive value deletes those whose `modified` is strictly before now minus that many 24-hour days (`modified` is parsed as a timestamp with a fraction). Each conversation removed publishes `sessions.changed`. Bot conversations are not offered and are not counted. A conversation whose `modified` cannot be parsed, or that is not old enough, is not counted. One that is no longer archived, or whose modification time changed after it was listed, is left and not counted. A running conversation, a pinned one, or a delete that fails increments `skipped`. If storage becomes unavailable the scan stops and the response is still `200` with the counts so far.
 
 Request:
 
@@ -647,7 +650,7 @@ Events: `sessions.changed` when `changed` is true, and also `bot.changed` when t
 ### POST /v1/sessions/seen
 
 Auth: any key
-Effect: Marks every main conversation seen, archived ones included, and every finished scheduled-task result read. After it, no list row has `unseen` set and the scheduled tasks' `unread` count is `0`, so a badge built from either reaches zero. Side lanes keep their own marks. Safe to call again. When the scheduler is not running or its storage is unavailable, the conversations are still marked and `runs_read` is `0`.
+Effect: Marks every main conversation of the caller's user seen, archived ones included, and, for the first user, every finished scheduled-task result read. After it, no list row has `unseen` set and the scheduled tasks' `unread` count is `0`, so a badge built from either reaches zero. Side lanes keep their own marks. Safe to call again. When the scheduler is not running or its storage is unavailable, the conversations are still marked and `runs_read` is `0`.
 
 Request: no body.
 

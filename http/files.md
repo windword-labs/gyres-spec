@@ -223,7 +223,7 @@ Events: none.
 ### GET /v1/session-search
 
 Auth: any key
-Effect: Finds conversations whose message text contains `query`. Returns the first match of each lane, newest conversation ids first, at most 20. Archived conversations are skipped. So are background Bot tasks that the conversation list hides, and a conversation started by another conversation that still exists. Bot chats stay, and are marked.
+Effect: Finds the caller's user's conversations whose message text contains `query`. Returns the first match of each lane, newest conversation ids first, at most 20. Archived conversations are skipped, and so are conversations of other users. So are background Bot tasks that the conversation list hides, and a conversation started by another conversation that still exists. Bot chats stay, and are marked.
 
 Query: `query` (string, trimmed). Empty or whitespace returns no hits and does not scan. Longer than 256 Unicode code points is `400`.
 

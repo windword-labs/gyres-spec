@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.132.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.133.0. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -69,6 +69,7 @@ latest Gyres release only; breaking changes are listed in
   - [Conversations](http/sessions.md)
   - [Storage, export and import](http/storage.md)
   - [System](http/system.md)
+  - [Users](http/users.md)
 
 Every endpoint uses the same layout: `### METHOD /path`, then `Auth:`
 (`none`, `any key` or `admin`), `Effect:`, `Request`, `Response`, `Errors` and
@@ -1957,6 +1958,8 @@ A request with `once_only` true is never covered by a mode, a grant or unattende
 A grant with `scope` `global` omits `session_id` and applies in every conversation. A grant with `scope` `session` includes `session_id` and applies to that conversation and to a request whose `policy_session` is that same id. `tool_wide` true matches the same `tool` and the same `tool_identity` (both empty still matches) and does not depend on `resource`. Otherwise the grant matches the same `tool` and the same `key` only. Grants are also created outside a card, for example a global tool grant made on the Core host; they appear in this list and are revoked here. `key` is an opaque match string, not a credential. Request objects do not include it.
 
 `status` on a request is `pending`, `approved`, `rejected`, `denied`, `expired` or `cancelled`. `scope` on an approved request is `once`, `session` or `global`. `finished_at` is set once the request leaves `pending`. A restart stores a still-waiting request as `expired` with `reason` `Core restarted; this operation was not replayed`.
+
+A key sees and decides only the requests of its own user's conversations, the conversation grants and modes of those conversations, the policy and the global grants. Deciding another user's request answers as for a request that does not exist. Only the first user may choose `global`, change the settings or revoke grants (`403` otherwise).
 
 Changes publish `approvals.changed` on `GET /v1/events`, with no conversation id. One request can publish it more than once. Refetch `GET /v1/approvals`. Submitting a policy or a mode that is already stored publishes nothing.
 
@@ -4062,7 +4065,7 @@ Events: `plugins.changed` on success.
 
 ### POST /v1/plugins/{name}/tools/{tool}
 
-Auth: any key; an administrator key for a tool with `settings_page` true
+Auth: a key of the first user (`403` for another user's: plugin tools are the first user's, docs/access.md "Route classes"); an administrator key for a tool with `settings_page` true
 Effect: Runs one tool declared by that plugin, as a click in the plugin's own page. The call is checked against the tool schema and recorded as approved, with no approval card. The tool's own failure is `200` with `result.is_error` true. A failure before the tool runs is an HTTP error.
 
 Path: `name` plugin name. `tool` the short tool name (`look`), not `plugin.tool` and not `plugin__tool`.
@@ -4872,7 +4875,7 @@ Events: none.
 ### GET /v1/session-search
 
 Auth: any key
-Effect: Finds conversations whose message text contains `query`. Returns the first match of each lane, newest conversation ids first, at most 20. Archived conversations are skipped. So are background Bot tasks that the conversation list hides, and a conversation started by another conversation that still exists. Bot chats stay, and are marked.
+Effect: Finds the caller's user's conversations whose message text contains `query`. Returns the first match of each lane, newest conversation ids first, at most 20. Archived conversations are skipped, and so are conversations of other users. So are background Bot tasks that the conversation list hides, and a conversation started by another conversation that still exists. Bot chats stay, and are marked.
 
 Query: `query` (string, trimmed). Empty or whitespace returns no hits and does not scan. Longer than 256 Unicode code points is `400`.
 
@@ -5373,8 +5376,8 @@ Events: none.
 
 ### GET /v1/memory
 
-Auth: admin
-Effect: Returns the owner's memory snapshot, the review settings, and the pending proposals and review jobs. Review transcripts are cleared before the response is sent. This is the owner memory, not one project's memory: project text is not in `snapshot`.
+Auth: any key
+Effect: Returns the owner memory of the caller's user, for any key of that user, ordinary or administrator; no key reaches another user's memory: the snapshot, the review settings, and the pending proposals and review jobs. Each user has their own; a user who has never saved any gets empty texts and the default settings. Review transcripts are cleared before the response is sent. This is the owner memory, not one project's memory: project text is not in `snapshot`.
 
 Request: no body.
 
@@ -5447,7 +5450,7 @@ Response: `200`
 - `counters` maps a conversation id to `{count, last_message_id}` and, when skill learning is counting tool calls, `tools`. It is `{}` when empty.
 - `audit` is the latest 100 notes, oldest first once the cap is reached. Each note is `{at, action, target, source, detail}`. `action` is `edit`, `propose`, `approve`, `reject`, `add`, `replace`, `remove`, or `review_` plus a job status. A save made through `PUT /v1/memory` records `edit` with `source.origin` `desktop` and `detail` `Owner edited memory`.
 - `forgotten` lists opaque hashes of entries an edit removed, so a later review does not put the same entry back. JSON `null` until the first one.
-- `directory` is the absolute directory of this memory.
+- `directory` is the absolute directory of this memory: `<home>/memories/owner` for the first user, `<home>/memories/<user id>` for any other, which exists only after that user's first save.
 
 Errors:
 
@@ -5706,8 +5709,8 @@ Events: none.
 
 ### POST /v1/memory/jobs/{id}/retry
 
-Auth: admin
-Effect: Queues a failed memory review again. Attempts and the error are cleared, and the next try is not delayed. Any other status is refused. Refetch `GET /v1/memory` to see the job.
+Auth: any key
+Effect: Queues a failed memory review of the caller's user again. Attempts and the error are cleared, and the next try is not delayed. Any other status, and another user's job, is refused. Refetch `GET /v1/memory` to see the job.
 
 Path: `id` review job id from `state.jobs`.
 
@@ -5727,8 +5730,8 @@ Events: none.
 
 ### POST /v1/memory/proposals/{id}
 
-Auth: admin
-Effect: Approves or rejects one pending memory proposal, then removes it. Approve applies the operation when `version` still matches the current text. A mismatch leaves the proposal in place. Reject removes it and changes no text. Refetch `GET /v1/memory`. Approving a `project` proposal writes that project's memory; this route's owner snapshot does not include project text.
+Auth: any key
+Effect: Approves or rejects one pending memory proposal of the caller's user (another user's is not found), then removes it. Approve applies the operation when `version` still matches the current text. A mismatch leaves the proposal in place. Reject removes it and changes no text. Refetch `GET /v1/memory`. Approving a `project` proposal writes that project's memory; this route's owner snapshot does not include project text.
 
 Path: `id` proposal id from `state.proposals`.
 
@@ -5903,8 +5906,8 @@ Events: none.
 
 ### PUT /v1/memory
 
-Auth: admin
-Effect: Replaces the owner's memory settings and the two memory texts, when `version` is still the one from `GET /v1/memory`. Proposals, jobs and audit are not part of the body. An edit that drops an existing entry records that entry as forgotten and marks queued, running and failed reviews `superseded`. Returns the same object as `GET /v1/memory`, including the new `version`. Use that `version` for the next save.
+Auth: any key
+Effect: Replaces the caller's user's memory settings and the two memory texts, when `version` is still the one from `GET /v1/memory`. Proposals, jobs and audit are not part of the body. An edit that drops an existing entry records that entry as forgotten and marks queued, running and failed reviews `superseded`. Returns the same object as `GET /v1/memory`, including the new `version`. Use that `version` for the next save.
 
 Request:
 
@@ -6160,6 +6163,7 @@ Request: no body, or
 ```
 
 - `role` (string, optional) is `user` (the default) or `admin`: the kind of key the code will create. Any other value, another field, or a body that is not one JSON object of at most 4096 bytes is `400`.
+- `user_id` (string, optional) is the [user](users.md) the new key will belong to. Without it the key belongs to the user of the administrator key that created the code. A Core older than users answers `400` to this field; send it only when a user other than your own is chosen.
 
 Response: `201`
 
@@ -6176,6 +6180,7 @@ Response: `201`
 - `code` is the one-time pairing code, returned only here. Show it to the device; a later status read will not repeat it.
 - `id` identifies this code for status and cancel. It is not the code.
 - `expires_at` is 2 minutes after creation, UTC.
+- `user_id` is the user the code's key will belong to. Older Cores omit it.
 - `role` is the kind of key the code creates, `user` or `admin`. A Core that does not report it creates ordinary keys only and ignores the request body.
 - `relay` and `ck` are present only while the Gyres relay is on ([relay](relay.md)): the relay address for this Core and Core's X25519 Noise public key (base64url, 32 bytes). A pairing link carries them as the `relay` and `ck` fragment keys.
 - `core_url` is the address the device should use. The request is first taken as it arrived: scheme `https` when the connection is TLS, otherwise `http`, and the host header. When the peer is a trusted proxy, exactly one forwarding family is present, and those headers are well formed, that view is replaced by the proxy's scheme and host (`Forwarded`, or `X-Forwarded-Proto` together with `X-Forwarded-Host`). Both families at once, an untrusted peer, or a malformed header leave the connection unchanged.
@@ -6195,6 +6200,7 @@ Errors:
 ```
 
 - `400` invalid request, or role must be admin or user
+- `404` `code` `user_not_found`: `user_id` names no user of this Core. No code is stored.
 - `429` too many pairing codes are active; wait or cancel one
 
 Events: none.
@@ -6202,7 +6208,7 @@ Events: none.
 ### POST /v1/pairing/redeem
 
 Auth: none
-Effect: Exchanges one valid pairing code for a new access key of the code's role and returns its secret once. The code is consumed before the key is saved, so a second request, a concurrent request, or a failed save cannot mint another key from it.
+Effect: Exchanges one valid pairing code for a new access key of the code's role and user and returns its secret once. The code is consumed before the key is saved, so a second request, a concurrent request, or a failed save cannot mint another key from it.
 
 Request:
 
@@ -8270,7 +8276,7 @@ A hold lasts 2 minutes and is kept only in memory. Another `hold` refreshes it. 
 ### GET /v1/events
 
 Auth: any key
-Effect: Opens the Core-wide notification stream. The first frame is `ready`. The stream then forwards notifications until the client disconnects or Core closes it (Core is reloading). There is no resume cursor: connect again. The server does not read a last-event id. If this client falls behind, a later frame is `resync`; refetch anything you were watching. Frames and fields are in [Events](../events.md).
+Effect: Opens the Core-wide notification stream of the caller's user. The first frame is `ready`. Notifications that name a conversation reach only its owner; `bot.changed`, `peers.changed`, `schedules.changed` and `project_list.changed` reach only the first user of the Core; the others reach every user. The stream then forwards notifications until the client disconnects or Core closes it (Core is reloading). There is no resume cursor: connect again. The server does not read a last-event id. If this client falls behind, a later frame is `resync`; refetch anything you were watching. Frames and fields are in [Events](../events.md).
 
 Request: no body.
 
@@ -9845,6 +9851,8 @@ Every JSON response is `application/json`. An error body is `{"error":"<message>
 
 Many routes take either a session id or a lane handle in `{id}`. A lane is another path through the same conversation, branched from one message. The list contains only main conversations. Settings, the recap, and the seen mark belong to the lane named in the path. The workspace, the context epoch, and the context mode belong to the whole conversation: a lane handle reads and writes the same values as its session id. Archive, unarchive, pin, and unpin reject a lane handle before they check that the conversation exists.
 
+Every conversation belongs to one Core user, its owner (the user of the key that created it; older conversations belong to the first user). A key sees and reaches only its own user's conversations, administrator keys included: every `/v1/sessions/{id}` route answers a conversation of another user with `404` `session not found` before it reads anything, the answer a conversation that does not exist gets, and the lists, `GET /v1/session-search` and the bulk routes leave other users' conversations out. A Core with one user (every Core today) answers exactly as before.
+
 ## Identifiers
 
 A new session id looks like `2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd-ef0123456789`: a UTC timestamp with `:` and `.` rewritten as `-` and cut to 19 characters, then `_`, then a UUID. A message id looks like `msg_3f2a1b0c-4d5e-6789-abcd-ef0123456789`. A turn id looks like `turn_3f2a1b0c4d5e6789abcdef0123456789`. Do not parse these.
@@ -10128,7 +10136,7 @@ Codex, Grok, pi, Claude, and Cursor can own a conversation. Their provider ids a
 ### GET /v1/sessions
 
 Auth: any key
-Effect: Lists conversations. The live list is the default. `archived=true` lists archived conversations instead.
+Effect: Lists the caller's user's conversations. The live list is the default. `archived=true` lists archived conversations instead.
 
 Query:
 
@@ -10155,7 +10163,7 @@ Events: none.
 ### POST /v1/sessions
 
 Auth: any key
-Effect: Creates an empty main conversation and stores the Core default context mode (`window` only when that default is exactly `window`, otherwise `summary`). The body is not read.
+Effect: Creates an empty main conversation owned by the caller's user and stores the Core default context mode (`window` only when that default is exactly `window`, otherwise `summary`). The body is not read.
 
 Request: no body.
 
@@ -10169,6 +10177,7 @@ Response: `200`
 
 Errors:
 
+- `403` the credential has no user (a key whose record cannot be read)
 - `500` the conversation could not be created. If the context mode cannot be stored, the new conversation is removed.
 
 Events: `sessions.changed`. If storing the context mode fails, the removed conversation is announced the same way.
@@ -10373,7 +10382,7 @@ Events: `sessions.changed`
 ### POST /v1/sessions/archived/delete
 
 Auth: any key
-Effect: Deletes archived conversations. `older_than_days` of `0`, or an empty body, deletes every archived conversation that can be removed. A positive value deletes those whose `modified` is strictly before now minus that many 24-hour days (`modified` is parsed as a timestamp with a fraction). Each conversation removed publishes `sessions.changed`. Bot conversations are not offered and are not counted. A conversation whose `modified` cannot be parsed, or that is not old enough, is not counted. One that is no longer archived, or whose modification time changed after it was listed, is left and not counted. A running conversation, a pinned one, or a delete that fails increments `skipped`. If storage becomes unavailable the scan stops and the response is still `200` with the counts so far.
+Effect: Deletes the caller's user's archived conversations. `older_than_days` of `0`, or an empty body, deletes every archived conversation that can be removed. A positive value deletes those whose `modified` is strictly before now minus that many 24-hour days (`modified` is parsed as a timestamp with a fraction). Each conversation removed publishes `sessions.changed`. Bot conversations are not offered and are not counted. A conversation whose `modified` cannot be parsed, or that is not old enough, is not counted. One that is no longer archived, or whose modification time changed after it was listed, is left and not counted. A running conversation, a pinned one, or a delete that fails increments `skipped`. If storage becomes unavailable the scan stops and the response is still `200` with the counts so far.
 
 Request:
 
@@ -10486,7 +10495,7 @@ Events: `sessions.changed` when `changed` is true, and also `bot.changed` when t
 ### POST /v1/sessions/seen
 
 Auth: any key
-Effect: Marks every main conversation seen, archived ones included, and every finished scheduled-task result read. After it, no list row has `unseen` set and the scheduled tasks' `unread` count is `0`, so a badge built from either reaches zero. Side lanes keep their own marks. Safe to call again. When the scheduler is not running or its storage is unavailable, the conversations are still marked and `runs_read` is `0`.
+Effect: Marks every main conversation of the caller's user seen, archived ones included, and, for the first user, every finished scheduled-task result read. After it, no list row has `unseen` set and the scheduled tasks' `unread` count is `0`, so a badge built from either reaches zero. Side lanes keep their own marks. Safe to call again. When the scheduler is not running or its storage is unavailable, the conversations are still marked and `runs_read` is `0`.
 
 Request: no body.
 
@@ -11643,12 +11652,12 @@ One event per conversation removed, with that conversation's `session_id`. A run
 
 The download and the upload share one lock. A second export or import gets `409` `transfer_busy`.
 
-The package is a zip. `manifest.json` is the last entry. Its `format` is `gyres-export` and `format_version` is `1`. A client that only saves or uploads the body can treat the zip as opaque. The fields below are what import checks and what `GET /v1/import` repeats from the last package.
+The package is a zip. `manifest.json` is the last entry. Its `format` is `gyres-export` and `format_version` is `2` (packages from releases before the `users` part have `1` and still import; a version above `2` is refused with a request to update Gyres). A client that only saves or uploads the body can treat the zip as opaque. The fields below are what import checks and what `GET /v1/import` repeats from the last package.
 
 ```json
 {
   "format": "gyres-export",
-  "format_version": 1,
+  "format_version": 2,
   "gyres_version": "1.2.3",
   "created_at": "2026-10-14T12:00:00Z",
   "source": {
@@ -11687,12 +11696,12 @@ The package is a zip. `manifest.json` is the last entry. Its `format` is `gyres-
 ```
 
 - `source.parts` maps every part id (`sessions`, `workspaces`, `visualizations`, `projects`, `memories`, `bot`, `skills`, `schedules`, `tasks`, `code`, `plugins`, `approvals`) to its directory. The example shows one. `source.resolved`, when present, maps a part id to that same directory with symlinks resolved, and only for parts where the two paths differ.
-- `categories[].id` is `conversations`, `projects`, `memory`, `bot`, `skills`, `schedules`, `tasks`, `code`, `plugins`, `approvals`, then `settings`. `files` and `bytes` count packed files. Empty parts are still listed. `excluded` is always the list in the example.
+- `categories[].id` is `conversations`, `projects`, `memory`, `bot`, `skills`, `schedules`, `tasks`, `code`, `plugins`, `approvals`, `users`, then `settings`. `files` and `bytes` count packed files. Empty parts are still listed. `excluded` is always the list in the example.
 - `mode` on a file entry is the permission bits as a number. `384` is owner read and write.
 - `secrets_to_reenter[].kind` is `provider`, `plugin`, `mcp` or `channel`. `keys` is present for a plugin and lists the secret names that had a value, not the values. `provider` uses the provider name, or its id when the name is empty. `channel` uses the kind, `feishu` or `discord`.
 - API keys, the data location, the listen address, LAN discovery, TLS and trusted proxies are removed from the packed settings. Access keys, certificates, plugin secrets, MCP credentials, Bot channel connections, logs and caches are not packed. `excluded` names those groups.
 - A file entry omits `type` and includes `size` and a 64-character `sha256`. `mode` is the permission bits. `mtime` is omitted when zero. A directory has `type` `dir`. A link has `type` `link` and `target`, and is not a zip entry of its own.
-- Paths are relative and use `/`. They sit under `conversations/sessions`, `conversations/workspaces`, `conversations/visualizations`, `projects/projects`, `memory/memories`, `bot/bot`, `skills/skills`, `schedules/schedules`, `tasks/tasks`, `code/code`, `plugins/plugins`, `approvals/approvals`, or `settings/` with one of `config.json`, `mcp-servers.json`, `codex.json`, `grok.json`, `pi.json`, `claude.json`, `hooks.json`, `running-input.json`. `bot/bot/channels` and `plugins/plugins/.tmp` are not valid entries.
+- Paths are relative and use `/`. They sit under `conversations/sessions`, `conversations/workspaces`, `conversations/visualizations`, `projects/projects`, `memory/memories`, `bot/bot`, `skills/skills`, `schedules/schedules`, `tasks/tasks`, `code/code`, `plugins/plugins`, `approvals/approvals`, `users/users`, or `settings/` with one of `config.json`, `mcp-servers.json`, `codex.json`, `grok.json`, `pi.json`, `claude.json`, `hooks.json`, `running-input.json`. `bot/bot/channels` and `plugins/plugins/.tmp` are not valid entries.
 
 ### GET /v1/export
 
@@ -11791,11 +11800,12 @@ Response: `200`
 ```
 
 - `running` is true only while an import holds the transfer lock, including during the upload before `POST /v1/import` answers. An export in progress leaves it false. After the import is accepted, maintenance hides this route until the import fails or Core reopens. Follow progress on `GET /v1/storage`.
-- `not_fresh` is always an array. An empty array means a package can be imported. Otherwise the ids are the categories that already hold data, in this order, skipping empty ones: `conversations`, `projects`, `memory`, `bot`, `skills`, `schedules`, `code`, `plugins`.
+- `not_fresh` is always an array. An empty array means a package can be imported. Otherwise the ids are the categories that already hold data, in this order, skipping empty ones: `conversations`, `projects`, `memory`, `bot`, `users`, `skills`, `schedules`, `code`, `plugins`.
 - `conversations`: a non-empty transcript (`*.jsonl`) under sessions, or any other user file under workspaces or visualizations.
 - `projects`: `projects.json` is not a JSON array, or that array is not empty, or projects has any other user file.
 - `memory`: a Markdown file that is not empty or whitespace.
 - `bot`: a non-blank `MEMORY.md`, or any file under `incidents/`.
+- `users`: a user besides the first. Access keys are never in a package, so another user's keys here would be left with no user.
 - `skills`, `schedules` and `code`: any user file. `plugins`: any user file outside `.tmp`.
 - Ignored names are the same as on the storage check, plus `.lock`. A link, any other non-directory, and a directory that cannot be read count as data. What a new Core writes for an empty Bot chat, default settings and blank memory files does not.
 - `last` is omitted when no import has been recorded or the record cannot be read.
@@ -11979,7 +11989,7 @@ Events: none.
 ### GET /v1/identity
 
 Auth: any key
-Effect: Reports which kind of access key this request used, and where this Core can be reached. The response sends `Cache-Control: no-store`.
+Effect: Reports which kind of access key this request used, whose it is, and where this Core can be reached. The response sends `Cache-Control: no-store`.
 
 Request: no body.
 
@@ -11995,10 +12005,14 @@ Response: `200`
     { "url": "http://192.0.2.10:15100", "source": "lan" },
     { "url": "http://127.0.0.1:15100", "source": "loopback" }
   ],
-  "caller_loopback": false
+  "caller_loopback": false,
+  "user_id": "owner",
+  "user_name": "Owner",
+  "key_name": "Work laptop"
 }
 ```
 
+- `user_id` and `user_name` are the Core user the key belongs to. The first user of every Core has the id `owner`; other users have 24 lowercase hex characters. `key_name` is the key's own label. Each is an empty string when it cannot be read. Older Cores omit them.
 - `role` is `admin` when the key is an administrator key, and `user` for every other accepted key.
 - `host` is the operating-system hostname of the Core machine. It is an empty string when that name cannot be read.
 - `instance_id` is 32 lowercase hex characters, stable for this Core's home across restarts. Clients that know several addresses use it to recognise one machine. It is an empty string when it cannot be stored.
@@ -12992,6 +13006,138 @@ Errors:
 - `400` `最大循环次数必须是至少 100 的整数` — both fields were read and `max_turns` is below 100
 - `409` `配置已在其他窗口更新，请重新加载后再修改` — `revision` is not the current one
 - `500` the setting could not be saved
+
+Events: none.
+
+
+<!-- file: http/users.md -->
+
+# Users
+
+A Core has a list of users, local to the host. A user has an id, a name and a creation time; no password and no role. Every access key belongs to one user, and a key sees only its user's conversations. The role (administrator or ordinary) stays on the key, so a user may hold administrator keys and ordinary ones. The first user of every Core has the id `owner` (named `Owner` until renamed); other users have 24 lowercase hex characters. Names are 1–80 characters after trimming and unique among the Core's users, compared without letter case.
+
+These routes are for administrator keys only. Any administrator key may use them, whatever its user. There is no route that deletes a user, creates an access key outside [device pairing](pairing.md), or returns a key's secret or hash. Every user reads their own user id and name in `GET /v1/identity` ([system](system.md)).
+
+On this release a user other than the first may use their own conversations, search, events, approvals of their own conversations, and the host-wide settings every chat needs. Bots, Projects, schedules, Tasks, channels, MCP management and approval settings belong to the first user and answer `403` for them.
+
+Every response from these routes sends `Cache-Control: no-store`. Coded errors carry `{"error": "<message>", "code": "<code>"}`.
+
+### GET /v1/users
+
+Auth: admin
+Effect: Lists every user with their access keys.
+
+Request: no body.
+
+Response: `200`
+
+```json
+{
+  "users": [
+    {
+      "id": "owner",
+      "name": "Owner",
+      "created_at": "2026-11-27T08:00:00Z",
+      "first": true,
+      "key_count": 1,
+      "keys": [
+        {
+          "id": "0123456789abcdef01234567",
+          "name": "Laptop",
+          "role": "admin",
+          "user_id": "owner",
+          "created_at": "2026-11-27T08:00:00Z",
+          "last_used_at": "2026-11-27T09:12:00Z",
+          "revoked": false
+        }
+      ]
+    }
+  ]
+}
+```
+
+- Users come first user first, then by creation time.
+- `first` is true for the first user only.
+- `keys` lists the user's keys, revoked ones included (`revoked` true), oldest first. `last_used_at` is omitted for a key never used. `handoff_id` is present on a revoked key whose work went to another key. A key carries no secret and no hash.
+- `key_count` counts the user's keys that are not revoked.
+
+Errors:
+
+- `403` administrator key required
+
+Events: none.
+
+### POST /v1/users
+
+Auth: admin
+Effect: Adds a user with a new id. The new user has no keys yet; give them one with [device pairing](pairing.md) (`user_id`) or on the Core host.
+
+Request:
+
+```json
+{ "name": "Ann" }
+```
+
+- `name` (string) is required. The body is one JSON object of at most 4096 bytes with only this field.
+
+Response: `201`, the user in the shape of a `GET /v1/users` row (`keys` empty, `key_count` 0).
+
+Errors:
+
+- `400` invalid request; or `code` `user_name_invalid` when the name is empty or longer than 80 characters
+- `409` `code` `user_name_taken`: another user already has this name (compared trimmed and without letter case)
+- `403` administrator key required
+
+Events: none.
+
+### PATCH /v1/users/{id}
+
+Auth: admin
+Effect: Renames a user. The id never changes, and the first user can be renamed too.
+
+Path: `id` user id.
+
+Request:
+
+```json
+{ "name": "Ann Lee" }
+```
+
+Response: `200`
+
+```json
+{ "id": "0123456789abcdef01234567", "name": "Ann Lee", "created_at": "2026-11-27T08:00:00Z", "first": false }
+```
+
+Errors:
+
+- `400` invalid request, or `code` `user_name_invalid`
+- `404` `code` `user_not_found`
+- `409` `code` `user_name_taken`. A user may keep their own name with other letter case.
+- `403` administrator key required
+
+Events: none.
+
+### PUT /v1/access-keys/{id}/user
+
+Auth: admin
+Effect: Gives an active access key to another user. The secret, role and name stay the same. Requests of that key that are open when it moves (an event stream, for example) end within a second, and its next request acts as the new user: it sees the new user's conversations and none of the old ones.
+
+Path: `id` access key id (24 lowercase hex characters, as in `GET /v1/users`).
+
+Request:
+
+```json
+{ "user_id": "0123456789abcdef01234567" }
+```
+
+Response: `200`, the key in the shape of a `GET /v1/users` key.
+
+Errors:
+
+- `400` invalid request
+- `404` `code` `user_not_found`, or `code` `key_not_found` (no such key, or it is revoked)
+- `403` administrator key required
 
 Events: none.
 
@@ -14034,6 +14180,8 @@ not JSON: read the status code, not the body.
 | `403` | `administrator key required` (JSON) | An `Auth: admin` route called with an ordinary key. Hide admin features for non-admin keys (`GET /v1/identity` tells you the role). |
 | `403` | `invalid host` (text) | The `Host` header is not an IP address, `localhost`, or Core's configured HTTPS domain. Connect by IP or by that domain. |
 | `403` | `manage configuration on the host` (text) | A route that only the Core host itself may use. |
+| `403` | `only the first user of this Core can use this` (JSON) | A route of the Core's first user (Bots, Projects, channels, peers, schedules, Tasks, MCP, approval settings, skill, plugin and hook management, memory) called with a key of another user. `GET /v1/identity` reports the key's `user_id`; the first user's is `owner`. |
+| `404` | `session not found` (JSON) | A `/v1/sessions/{id}` route naming a conversation of another user: the same answer as for one that does not exist. |
 
 A key revoked while a request or stream is open ends that request within about
 a quarter of a second.
