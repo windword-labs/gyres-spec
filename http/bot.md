@@ -42,6 +42,8 @@ A conversation that is a specialist's chat runs as that specialist: its prompt i
 
 **Project binding.** A specialist works in at most one project (`project_id`); a project may have several Bots. The primary works outside projects and refuses a binding. A bound specialist's main chat is bound to the project like its Coordinator chat: the project's directories, instructions, memory, library and skills, and the project's list (`project_list`); nothing of other projects. `PUT /v1/bots/{id}` with another `project_id` moves the main chat to that project in place: the same conversation, with a fresh context from its next turn. Its workspace cannot be changed with `PUT /v1/sessions/{id}/workspace` (`409`).
 
+**Directories instead of a project.** `POST /v1/bots` and `PUT /v1/bots/{id}` take `project_directories` in place of `project_id`: `{"primary": <absolute path>, "roots": [<absolute path>, …]}`, the words of `POST /v1/projects` (`roots` are the additional directories; the primary repeated there and empty entries are ignored). Core binds the Bot to the registered project whose primary directory is the same real path (symlinks resolved) and whose additional directories are the same set, in any order; a project without folders never matches. When none matches, Core first creates an ordinary project for them, as `POST /v1/projects` does (same checks, limits and errors), named after the primary directory's last path element, with ` (2)`, ` (3)`, … when that name is taken. The Bot still holds only `project_id`. The project it was bound to before is never changed: its directories are edited with `PUT /v1/projects/{project}`. When the Bot's save or binding then fails, a project created for it is removed again (as `DELETE /v1/projects/{project}`) unless a Bot is bound to it or it has a lead by then.
+
 **Project lead.** A project names at most one lead Bot (`lead_bot_id` on the project, see Projects), a specialist bound to it. The lead's main chat is the project's Coordinator chat: it keeps the project's `coordinator_session_id`, is listed with `GET /v1/bot`'s `chats` and `projects` and with the role `coordinator` in `GET /v1/sessions?all=1`, and its side chats are branched as before. The lead runs with the primary's introduction rewritten for a lead, its own name and description, the Coordinator section in its main chat, and the background tasks, radar and agenda tools; its tasks and agenda items are the Core's one list (`GET /v1/bot`'s `tasks` and `agenda`), they report back to the chat that started them and run on the lead's task model, else the lead's Bot model, else the Settings default; the primary's models are not a layer. A project's reports and notices that no chat claims (an agenda item of the project, a project Task's notice, a report whose requesting conversation is gone) go to its lead's main chat, and to the primary's main chat when it has none. A bound specialist that does not lead has no background tasks; other Bots can hand it tasks.
 
 **Tasks handed to another Bot.** The primary and a project's lead can hand a background task to another Bot of the list. Such a task is one of `GET /v1/bot`'s `tasks` with `target_bot_id`. It runs in its own hidden conversation (`session_id`), never in the target's main chat, which stays as it was: with the target's prompt, memory and model (its task model, else its Bot model, else the Settings default), in the target's project when it is bound (`project_id`), unattended. Its outcome is reported to the chat that handed it over; when that chat is gone, to the handing Bot's main chat, then to the lead of the project it was handed from, then to the primary's main chat. Core refuses a hand to the handing Bot itself, to a Bot already on the work's chain since the owner's message, past two hands per chain, and past three per turn.
@@ -320,7 +322,7 @@ Request:
 }
 ```
 
-- `name` (string, required). Trimmed. Empty or whitespace-only is rejected. The body is one JSON object of at most 16384 bytes.
+- `name` (string, required). Trimmed. Empty or whitespace-only is rejected. The body is one JSON object of at most 65536 bytes.
 - Bot names are unique: a name another Bot of the list already has is rejected (`409`, code `bot_name_taken`). Names compare after trimming and Unicode case folding, so `Writer`, `writer` and ` WRITER ` are the same name; scripts without case, such as Chinese, compare as written. Every Bot counts, the primary included, under the name `GET /v1/bots` shows (`Gyres Bot` before the primary's first save). Saving a Bot under its own current name, in any case, is accepted, also when Bots shared that name before this rule; such names are not changed by Core.
 - `description` (string). Trimmed. Omitted is `""` and clears a description already saved. Send the current description back when a save should keep it.
 - `task_provider_id` and `task_model` (strings). Omit both to leave the task model unchanged. Send both as `""` to clear it. Send both non-empty to pin it. Any other combination is rejected, including one empty and one non-empty. The same rule applies to `bot_provider_id` and `bot_model`.
@@ -335,7 +337,7 @@ Response: `200` the profile, same shape as `GET /v1/bot`, after the save and aft
 
 Errors:
 
-- `400` bot name is required. Also for a body that is not JSON or is larger than 16384 bytes.
+- `400` bot name is required. Also for a body that is not JSON or is larger than 65536 bytes.
 - `400` task_provider_id and task_model must be set together
 - `400` bot_provider_id and bot_model must be set together
 - `400` unknown or unavailable model (a Bot model that is not available now)
@@ -346,6 +348,7 @@ Errors:
 - `400` idle_nudge_minutes must be 0 through 1440
 - `400` avatar is not `null` or a known set and planet
 - `400` an unknown class in `tools_off`, or a non-empty `tools_off` for the primary
+- `400` the primary Bot works outside projects (a non-empty `project_id` or any `project_directories`)
 - `409` another Bot already has this name. The body adds `"code": "bot_name_taken"`, and the message names that Bot's id. Nothing is saved.
 - `500` the profile could not be saved, or the main chat could not be created. A failure while creating the main chat leaves the profile unsaved. Also an `avatar` while the Bot list cannot be used; nothing is saved.
 
@@ -477,25 +480,27 @@ Events: none.
 Auth: any key
 Effect: Creates a specialist Bot with its main chat.
 
-Request: the body of `PUT /v1/bot`, with the same rules for `name`, `description`, the model fields, `avatar` and `tools_off`, and optionally `project_id` (string, a registered project's id; see Project binding). `notify_target` and `idle_nudge_minutes` are the primary's and are ignored here.
+Request: the body of `PUT /v1/bot`, with the same rules for `name`, `description`, the model fields, `avatar` and `tools_off`, and optionally `project_id` (string, a registered project's id; see Project binding) or `project_directories` (object, see Directories instead of a project; never both). `notify_target` and `idle_nudge_minutes` are the primary's and are ignored here.
 
 ```json
 {
   "name": "Release Writer",
   "description": "Drafts release notes from merged pull requests.",
   "bot_provider_id": "provider-a",
-  "bot_model": "model-a"
+  "bot_model": "model-a",
+  "project_directories": {"primary": "/Users/me/src/app", "roots": ["/Users/me/src/docs"]}
 }
 ```
 
-Response: `201` the new Bot, with `system_prompt`.
+Response: `201` the new Bot, with `system_prompt`; with `project_directories`, its `project_id` is the project reused or created for them.
 
 Errors:
 
 - `400` the same errors as `PUT /v1/bot` for the fields above
 - `409` another Bot already has this name (`code` `bot_name_taken`, as for `PUT /v1/bot`). Nothing is created.
 - `400`, `409` the project in `project_id` is not registered, or its primary directory cannot be used; the Bot is created, unbound, and the message names it
-- `500` the Bot list cannot be used, or the Bot or its main chat could not be saved. Nothing is left behind.
+- `400` both `project_id` and `project_directories`; no primary directory; a directory that is not an absolute path or cannot be used, or more than 32 (the message of `POST /v1/projects`). Nothing is created.
+- `500` the Bot list cannot be used, or the Bot or its main chat could not be saved. Nothing is left behind, a project created for `project_directories` included.
 
 Events: `bot.changed`, `sessions.changed`.
 
@@ -520,19 +525,20 @@ Events: none.
 Auth: any key
 Effect: Saves a Bot's profile. For the primary this is `PUT /v1/bot`, with the same body and effects. For a specialist it saves the name, description and models, and first gives it a fresh main chat when its main chat was deleted or archived.
 
-Request: the body of `PUT /v1/bot`. A specialist ignores `notify_target` and `idle_nudge_minutes`. `project_id` (string, optional) binds a specialist to that project, `""` to none; omitted keeps it. A lead bound elsewhere stops leading its earlier project first.
+Request: the body of `PUT /v1/bot`. A specialist ignores `notify_target` and `idle_nudge_minutes`. `project_id` (string, optional) binds a specialist to that project, `""` to none; omitted keeps it. `project_directories` (object, optional, never with `project_id`) binds it to the project of those directories, reused or created first (see Directories instead of a project). A lead bound elsewhere stops leading its earlier project first.
 
 Response: `200` the Bot, with `system_prompt`.
 
 Errors:
 
 - `400` the same errors as `PUT /v1/bot`
-- `400` the primary Bot works outside projects (a non-empty `project_id` for the primary)
+- `400` the primary Bot works outside projects (a non-empty `project_id` or any `project_directories` for the primary)
+- `400` both `project_id` and `project_directories`, or a directory refused as on `POST /v1/bots`; nothing is saved
 - `400` a non-empty `tools_off` for a project's lead or for the primary; nothing is saved
 - `400` project not found (`project_id`)
 - `404` bot not found
 - `409` another Bot already has this name (`code` `bot_name_taken`, as for `PUT /v1/bot`). Nothing is saved.
-- `409` the project's primary directory cannot be used, or the Bot's main chat is running (stop it first)
+- `409` the project's primary directory cannot be used, or the Bot's main chat is running (stop it first). The rest of the profile is saved; a project created for `project_directories` is removed again.
 - `500` the Bot could not be saved
 
 Events: `bot.changed`; `sessions.changed` when a main chat is created.
