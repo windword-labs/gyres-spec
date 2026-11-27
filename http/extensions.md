@@ -426,7 +426,7 @@ Events: `plugins.changed` on success.
 
 ### POST /v1/plugins/{name}/tools/{tool}
 
-Auth: a key of the first user (`403` for another user's: plugin tools are the first user's, docs/access.md "Route classes"); an administrator key for a tool with `settings_page` true
+Auth: a key of the first user (`403` for another user's: a plugin page's tool calls are the first user's, web search included, docs/access.md "Route classes"); an administrator key for a tool with `settings_page` true
 Effect: Runs one tool declared by that plugin, as a click in the plugin's own page. The call is checked against the tool schema and recorded as approved, with no approval card. The tool's own failure is `200` with `result.is_error` true. A failure before the tool runs is an HTTP error.
 
 Path: `name` plugin name. `tool` the short tool name (`look`), not `plugin.tool` and not `plugin__tool`.

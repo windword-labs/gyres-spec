@@ -2,7 +2,7 @@
 
 A Core has a list of users, local to the host. A user has an id, a name and a creation time; no password and no role. Every access key belongs to one user, and a key sees only its user's conversations. The role (administrator or ordinary) stays on the key, so a user may hold administrator keys and ordinary ones. The first user of every Core has the id `owner` (named `Owner` until renamed); other users have 24 lowercase hex characters. Names are 1–80 characters after trimming and unique among the Core's users, compared without letter case.
 
-These routes are for administrator keys only. Any administrator key may use them, whatever its user. There is no route that deletes a user, creates an access key outside [device pairing](pairing.md), or returns a key's secret or hash. Every user reads their own user id and name in `GET /v1/identity` ([system](system.md)).
+These routes are for administrator keys only. Any administrator key may use them, whatever its user. There is no route that deletes a user, creates an access key outside [device pairing](pairing.md), or returns a key's secret or hash. Every user reads their own user id and name in `GET /v1/identity` ([system](system.md)) and renames themselves with `PATCH /v1/identity/user` below, which any key may use.
 
 On this release a user other than the first may use their own conversations, search, events, approvals of their own conversations, and the host-wide settings every chat needs. Bots, Projects, schedules, Tasks, channels, MCP management and approval settings belong to the first user and answer `403` for them.
 
@@ -101,6 +101,33 @@ Errors:
 - `404` `code` `user_not_found`
 - `409` `code` `user_name_taken`. A user may keep their own name with other letter case.
 - `403` administrator key required
+
+Events: none.
+
+### PATCH /v1/identity/user
+
+Auth: any key
+Effect: Renames the user the request's key belongs to, whatever the key's role. It takes no user id, so it never renames another user; administrators rename anyone with `PATCH /v1/users/{id}`. Names follow the same rules.
+
+Request:
+
+```json
+{ "name": "Ann Lee" }
+```
+
+- `name` (string) is required. The body is one JSON object of at most 4096 bytes with only this field.
+
+Response: `200`, as for `PATCH /v1/users/{id}`.
+
+```json
+{ "id": "0123456789abcdef01234567", "name": "Ann Lee", "created_at": "2026-11-27T08:00:00Z", "first": false }
+```
+
+Errors:
+
+- `400` invalid request, or `code` `user_name_invalid`
+- `404` `code` `user_not_found`: the key belongs to no user that can be read (a Core without users)
+- `409` `code` `user_name_taken`. A user may keep their own name with other letter case.
 
 Events: none.
 

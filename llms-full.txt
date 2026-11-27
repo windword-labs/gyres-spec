@@ -1,6 +1,6 @@
 # Gyres spec (all files)
 
-Generated from windword-labs/gyres-spec at Gyres v0.133.0. Source of each part is marked.
+Generated from windword-labs/gyres-spec at Gyres v0.133.1. Source of each part is marked.
 
 
 <!-- file: README.md -->
@@ -4065,7 +4065,7 @@ Events: `plugins.changed` on success.
 
 ### POST /v1/plugins/{name}/tools/{tool}
 
-Auth: a key of the first user (`403` for another user's: plugin tools are the first user's, docs/access.md "Route classes"); an administrator key for a tool with `settings_page` true
+Auth: a key of the first user (`403` for another user's: a plugin page's tool calls are the first user's, web search included, docs/access.md "Route classes"); an administrator key for a tool with `settings_page` true
 Effect: Runs one tool declared by that plugin, as a click in the plugin's own page. The call is checked against the tool schema and recorded as approved, with no approval card. The tool's own failure is `200` with `result.is_error` true. A failure before the tool runs is an HTTP error.
 
 Path: `name` plugin name. `tool` the short tool name (`look`), not `plugin.tool` and not `plugin__tool`.
@@ -12008,11 +12008,13 @@ Response: `200`
   "caller_loopback": false,
   "user_id": "owner",
   "user_name": "Owner",
-  "key_name": "Work laptop"
+  "key_name": "Work laptop",
+  "other_users": true
 }
 ```
 
 - `user_id` and `user_name` are the Core user the key belongs to. The first user of every Core has the id `owner`; other users have 24 lowercase hex characters. `key_name` is the key's own label. Each is an empty string when it cannot be read. Older Cores omit them.
+- `other_users` is `true` when the Core has users besides the key's own, `false` otherwise or when the users cannot be read. It names no user and gives no count; a client shows the current user's name when it is `true`. Older Cores omit it.
 - `role` is `admin` when the key is an administrator key, and `user` for every other accepted key.
 - `host` is the operating-system hostname of the Core machine. It is an empty string when that name cannot be read.
 - `instance_id` is 32 lowercase hex characters, stable for this Core's home across restarts. Clients that know several addresses use it to recognise one machine. It is an empty string when it cannot be stored.
@@ -13016,7 +13018,7 @@ Events: none.
 
 A Core has a list of users, local to the host. A user has an id, a name and a creation time; no password and no role. Every access key belongs to one user, and a key sees only its user's conversations. The role (administrator or ordinary) stays on the key, so a user may hold administrator keys and ordinary ones. The first user of every Core has the id `owner` (named `Owner` until renamed); other users have 24 lowercase hex characters. Names are 1–80 characters after trimming and unique among the Core's users, compared without letter case.
 
-These routes are for administrator keys only. Any administrator key may use them, whatever its user. There is no route that deletes a user, creates an access key outside [device pairing](pairing.md), or returns a key's secret or hash. Every user reads their own user id and name in `GET /v1/identity` ([system](system.md)).
+These routes are for administrator keys only. Any administrator key may use them, whatever its user. There is no route that deletes a user, creates an access key outside [device pairing](pairing.md), or returns a key's secret or hash. Every user reads their own user id and name in `GET /v1/identity` ([system](system.md)) and renames themselves with `PATCH /v1/identity/user` below, which any key may use.
 
 On this release a user other than the first may use their own conversations, search, events, approvals of their own conversations, and the host-wide settings every chat needs. Bots, Projects, schedules, Tasks, channels, MCP management and approval settings belong to the first user and answer `403` for them.
 
@@ -13115,6 +13117,33 @@ Errors:
 - `404` `code` `user_not_found`
 - `409` `code` `user_name_taken`. A user may keep their own name with other letter case.
 - `403` administrator key required
+
+Events: none.
+
+### PATCH /v1/identity/user
+
+Auth: any key
+Effect: Renames the user the request's key belongs to, whatever the key's role. It takes no user id, so it never renames another user; administrators rename anyone with `PATCH /v1/users/{id}`. Names follow the same rules.
+
+Request:
+
+```json
+{ "name": "Ann Lee" }
+```
+
+- `name` (string) is required. The body is one JSON object of at most 4096 bytes with only this field.
+
+Response: `200`, as for `PATCH /v1/users/{id}`.
+
+```json
+{ "id": "0123456789abcdef01234567", "name": "Ann Lee", "created_at": "2026-11-27T08:00:00Z", "first": false }
+```
+
+Errors:
+
+- `400` invalid request, or `code` `user_name_invalid`
+- `404` `code` `user_not_found`: the key belongs to no user that can be read (a Core without users)
+- `409` `code` `user_name_taken`. A user may keep their own name with other letter case.
 
 Events: none.
 

@@ -127,11 +127,13 @@ Response: `200`
   "caller_loopback": false,
   "user_id": "owner",
   "user_name": "Owner",
-  "key_name": "Work laptop"
+  "key_name": "Work laptop",
+  "other_users": true
 }
 ```
 
 - `user_id` and `user_name` are the Core user the key belongs to. The first user of every Core has the id `owner`; other users have 24 lowercase hex characters. `key_name` is the key's own label. Each is an empty string when it cannot be read. Older Cores omit them.
+- `other_users` is `true` when the Core has users besides the key's own, `false` otherwise or when the users cannot be read. It names no user and gives no count; a client shows the current user's name when it is `true`. Older Cores omit it.
 - `role` is `admin` when the key is an administrator key, and `user` for every other accepted key.
 - `host` is the operating-system hostname of the Core machine. It is an empty string when that name cannot be read.
 - `instance_id` is 32 lowercase hex characters, stable for this Core's home across restarts. Clients that know several addresses use it to recognise one machine. It is an empty string when it cannot be stored.
