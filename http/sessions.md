@@ -340,18 +340,25 @@ Events: `sessions.changed`. If storing the context mode fails, the removed conve
 ### GET /v1/sessions/{id}
 
 Auth: any key
-Effect: Returns one lane's timeline and the conversation fields a client needs to open it. A lane handle selects that lane; the bare session id selects main.
+Effect: Returns one lane's timeline and the conversation fields a client needs to open it. A lane handle selects that lane; the bare session id selects main. Supports conditional requests with `ETag` and `If-None-Match` (`304 Not Modified`), and optional tail-first backward pagination with `tail` and `before`. Sends `Cache-Control: private, no-cache` and exposes `ETag` to browsers.
 
 Path: `id` session id or lane handle.
 
-Request: no body.
+Query:
 
-Response: `200`
+- `tail` (integer, optional). A positive integer (`>= 1`). Returns the newest complete turns ending at the upper bound (the end of the lane, or the record strictly before `before`), covering at least `tail` records (or all remaining records when fewer exist) by extending the start of the window backward to a complete turn boundary so a turn is never split across pages. Omitted without `before` returns the full timeline; omitted with `before` returns every record strictly before `before`.
+- `before` (string, optional). A message `id` on the lane's current path. Restricts the response to records strictly earlier than that message. When `before` is the lane's first record, the response is `200` with `records: []` and `has_more: false`. When `before` is not on the lane's current path, the response is `400` (never `404`).
+
+Request: no body. May include `If-None-Match` with an `ETag` from a prior response for the same session and query window (comma-separated tags, weak `W/` tags, and `*` are accepted).
+
+Response: `200`, or `304 Not Modified` with an empty body when `If-None-Match` matches the current `ETag`. Both `200` and `304` include `ETag` and `Cache-Control: private, no-cache`. The `ETag` incorporates the lane, `history_version`, the query window (`tail`, `before`), and the session metadata fields returned in the body, so responses for different windows never collide and changes to the transcript, run state, title, or workspace invalidate it.
 
 ```json
 {
   "session_id": "2026-10-14T12-04-05_3f2a1b0c-4d5e-6789-abcd-ef0123456789",
   "records": [],
+  "has_more": false,
+  "total_records": 0,
   "running": false,
   "run_state": "idle",
   "executor": "gyres",
@@ -359,10 +366,12 @@ Response: `200`
 }
 ```
 
-`records` is the timeline above, including context records the list skips. `running` is true if a run slot existed before the read or still exists after it. Optional fields, when present, are `history_cursor`, `title`, `branch`, `origin`, `parent_session`, `executor_model`, `executor_options`, `cwd`, `cwd_kind`, and `workspace`, as specified above. `worker_project_id` is present when the conversation is a worker of a project: a Bot task's conversation (a hidden worker or a visible task, not an adopted conversation) or a standalone Task's attempt, the ones `GET /v1/projects/{project}/activity` lists for that project. A conversation that is only bound to the project (`workspace.project_id`) does not have it.
+`records` is the selected window of the timeline above (the full timeline when `tail` and `before` are omitted), including context records the list skips. `has_more` is `true` when earlier records exist before `records[0]`, and `false` otherwise. `next_before` is present only when `has_more` is `true` and gives the message `id` to pass as `before` to load the preceding page. `total_records` is the total number of records on the lane's full path. On a side lane, each returned record keeps its `shared` flag and `branch` is always computed from the full lane path (`shared_count` counts the full shared prefix even when a page starts after it). `running` is true if a run slot existed before the read or still exists after it. Optional fields, when present, are `next_before`, `history_cursor`, `title`, `branch`, `origin`, `parent_session`, `executor_model`, `executor_options`, `cwd`, `cwd_kind`, and `workspace`, as specified above. `worker_project_id` is present when the conversation is a worker of a project: a Bot task's conversation (a hidden worker or a visible task, not an adopted conversation) or a standalone Task's attempt, the ones `GET /v1/projects/{project}/activity` lists for that project. A conversation that is only bound to the project (`workspace.project_id`) does not have it.
 
 Errors:
 
+- `400` `tail must be a positive integer`
+- `400` `before message not found`
 - `404` session not found
 - `500` the timeline, an agent binding, or the workspace could not be read
 
